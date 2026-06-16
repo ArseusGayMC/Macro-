@@ -63,6 +63,9 @@ class MacroDetailViewModel @Inject constructor(
     val tapDuration: StateFlow<Long> = _tapDuration.asStateFlow()
 
     private val _actionDelay = MutableStateFlow(0L)
+
+    private val _holdThreshold = MutableStateFlow(350L)
+    val holdThreshold: StateFlow<Long> = _holdThreshold.asStateFlow()
     val actionDelay: StateFlow<Long> = _actionDelay.asStateFlow()
 
     init {
@@ -87,6 +90,7 @@ class MacroDetailViewModel @Inject constructor(
     fun setPlaybackSpeed(speed: Float) { _playbackSpeed.value = speed }
     fun setTapDuration(ms: Long) { _tapDuration.value = ms }
     fun setActionDelay(ms: Long) { _actionDelay.value = ms }
+    fun setHoldThreshold(ms: Long) { _holdThreshold.value = ms.coerceIn(50L, 2000L) }
 
     fun addManualAction(type: ActionType, x: Float, y: Float, endX: Float = 0f, endY: Float = 0f) {
         val action = MacroAction(
@@ -176,7 +180,8 @@ class MacroDetailViewModel @Inject constructor(
             context = context,
             macroName = _macroName.value.trim().ifBlank { "Macro" },
             tapDuration = _tapDuration.value,
-            tapDelay = _actionDelay.value.coerceAtLeast(30L)
+            tapDelay = _actionDelay.value.coerceAtLeast(30L),
+            holdThreshold = _holdThreshold.value
         )
         _isTriggerActive.value = true
         viewModelScope.launch {
