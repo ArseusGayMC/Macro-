@@ -43,7 +43,8 @@ class MacroDetailViewModel @Inject constructor(
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    private val _isTriggerActive = MutableStateFlow(false)
+    // Synced with FloatingTriggerButtonService.isRunning so it survives ViewModel recreation
+    private val _isTriggerActive = MutableStateFlow(FloatingTriggerButtonService.isRunning)
     val isTriggerActive: StateFlow<Boolean> = _isTriggerActive.asStateFlow()
 
     private val _snackbarMessage = MutableSharedFlow<String>()
@@ -171,32 +172,26 @@ class MacroDetailViewModel @Inject constructor(
     }
 
     fun startTriggerButton() {
-        val currentActions = _actions.value
-        if (currentActions.isEmpty()) {
-            viewModelScope.launch { _snackbarMessage.emit("Add actions first, then place the trigger button") }
-            return
-        }
         FloatingTriggerButtonService.start(
             context = context,
-            actions = currentActions,
-            macroName = _macroName.value.ifBlank { "Macro" },
-            loopCount = _loopCount.value,
-            speed = _playbackSpeed.value
+            macroName = _macroName.value.trim().ifBlank { "Macro" },
+            tapDuration = _tapDuration.value,
+            tapDelay = _actionDelay.value.coerceAtLeast(30L)
         )
         _isTriggerActive.value = true
-        viewModelScope.launch { _snackbarMessage.emit("Trigger button placed — hold it to run the macro") }
+        viewModelScope.launch {
+            _snackbarMessage.emit("Tetik buton eklendi — sürükle, basılı tut → tıklar")
+        }
     }
 
     fun stopTriggerButton() {
         FloatingTriggerButtonService.stop(context)
         _isTriggerActive.value = false
-        viewModelScope.launch { _snackbarMessage.emit("Trigger button removed") }
+        viewModelScope.launch { _snackbarMessage.emit("Tetik buton kaldırıldı") }
     }
 
     override fun onCleared() {
         super.onCleared()
-        if (_isTriggerActive.value) {
-            FloatingTriggerButtonService.stop(context)
-        }
+        // Do NOT auto-stop — user may want trigger button to persist after navigating away
     }
 }
