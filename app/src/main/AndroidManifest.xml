@@ -58,6 +58,15 @@
                 android:value="GG Macro overlay for gaming macro playback" />
         </service>
 
+        <service
+            android:name=".service.FloatingTriggerButtonService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="GG Macro floating trigger button for gaming macro execution" />
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="com.ggmacro.app.fileprovider"
