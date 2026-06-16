@@ -41,6 +41,7 @@ fun MacroDetailScreen(
     val loopCount by viewModel.loopCount.collectAsStateWithLifecycle()
     val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
     val tapDuration by viewModel.tapDuration.collectAsStateWithLifecycle()
+    val holdThreshold by viewModel.holdThreshold.collectAsStateWithLifecycle()
     val actionDelay by viewModel.actionDelay.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -136,6 +137,11 @@ fun MacroDetailScreen(
                             label = "Delay Between Actions (ms)",
                             value = actionDelay,
                             onChange = { viewModel.setActionDelay(it) }
+                        )
+                        NumberInput(
+                            label = "Hold Threshold (ms)",
+                            value = holdThreshold,
+                            onChange = { viewModel.setHoldThreshold(it) }
                         )
                     }
                 }
