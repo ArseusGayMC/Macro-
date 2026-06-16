@@ -19,11 +19,9 @@ class MacroAccessibilityService : AccessibilityService() {
         private const val TAG = "MacroA11yService"
 
         private var instance: MacroAccessibilityService? = null
-
         fun getInstance(): MacroAccessibilityService? = instance
 
         val isRunning = MutableStateFlow(false)
-
         const val ACTION_STOP_PLAYBACK = "com.ggmacro.app.STOP_PLAYBACK"
     }
 
@@ -33,6 +31,52 @@ class MacroAccessibilityService : AccessibilityService() {
     val isPlaying: StateFlow<Boolean> = _isPlaying
 
     private var playbackRunnable: Runnable? = null
+
+    // ── Trigger-button tap loop ──────────────────────────────────────────
+    @Volatile private var tapLooping = false
+    private var loopX = 0f
+    private var loopY = 0f
+    private var loopDuration = 50L
+    private var loopDelay = 50L
+
+    fun startTapLoop(x: Float, y: Float, duration: Long, delay: Long) {
+        if (tapLooping) return
+        loopX = x
+        loopY = y
+        loopDuration = duration.coerceAtLeast(1L)
+        loopDelay = delay.coerceAtLeast(16L)
+        tapLooping = true
+        doTap()
+    }
+
+    fun stopTapLoop() {
+        tapLooping = false
+        // Don't call removeCallbacksAndMessages here — that would also kill playback.
+        // The loop stops itself when tapLooping == false.
+    }
+
+    private fun doTap() {
+        if (!tapLooping) return
+        val path = Path().apply {
+            moveTo(loopX, loopY)
+            lineTo(loopX + 1f, loopY)   // tiny line → tap
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0L, loopDuration)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(g: GestureDescription?) {
+                if (tapLooping) handler.postDelayed({ doTap() }, loopDelay)
+            }
+            override fun onCancelled(g: GestureDescription?) {
+                if (tapLooping) handler.postDelayed({ doTap() }, loopDelay)
+            }
+        }, handler)
+        if (!dispatched) {
+            // dispatchGesture returned false → retry after delay
+            if (tapLooping) handler.postDelayed({ doTap() }, loopDelay)
+        }
+    }
+    // ────────────────────────────────────────────────────────────────────
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -48,6 +92,7 @@ class MacroAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
+        tapLooping = false
         instance = null
         isRunning.value = false
         _isPlaying.value = false
@@ -56,11 +101,13 @@ class MacroAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        tapLooping = false
         instance = null
         isRunning.value = false
         stopPlayback()
     }
 
+    // ── Macro playback ───────────────────────────────────────────────────
     fun playMacro(
         actions: List<MacroAction>,
         loopCount: Int,
@@ -80,9 +127,7 @@ class MacroAccessibilityService : AccessibilityService() {
                 return
             }
             repeatCount++
-            scheduleActions(actions, playbackSpeed) {
-                runLoop()
-            }
+            scheduleActions(actions, playbackSpeed) { runLoop() }
         }
 
         handler.post { runLoop() }
@@ -93,68 +138,50 @@ class MacroAccessibilityService : AccessibilityService() {
         speed: Float,
         onDone: () -> Unit
     ) {
-        if (actions.isEmpty()) {
-            onDone()
-            return
-        }
+        if (actions.isEmpty()) { onDone(); return }
 
         var cumulativeDelay = 0L
-
-        actions.forEachIndexed { index, action ->
-            val scaledDelay = (action.delayBefore / speed).toLong()
+        actions.forEachIndexed { _, action ->
+            val scaledDelay    = (action.delayBefore / speed).toLong()
             val scaledDuration = (action.duration / speed).toLong()
             cumulativeDelay += scaledDelay
-
             val capturedDelay = cumulativeDelay
-
             handler.postDelayed({
-                if (_isPlaying.value) {
-                    dispatchMacroAction(action, scaledDuration)
-                }
+                if (_isPlaying.value) dispatchMacroAction(action, scaledDuration)
             }, capturedDelay)
-
             cumulativeDelay += scaledDuration
         }
-
-        val totalDuration = cumulativeDelay
         handler.postDelayed({
             if (_isPlaying.value) onDone()
-        }, totalDuration + 50L)
+        }, cumulativeDelay + 50L)
     }
 
     private fun dispatchMacroAction(action: MacroAction, duration: Long) {
         when (action.type) {
-            ActionType.TAP -> dispatchTap(action.x, action.y, duration)
-            ActionType.LONG_PRESS -> dispatchTap(action.x, action.y, duration)
-            ActionType.SWIPE -> dispatchSwipe(action.x, action.y, action.endX, action.endY, duration)
+            ActionType.TAP         -> dispatchTap(action.x, action.y, duration)
+            ActionType.LONG_PRESS  -> dispatchTap(action.x, action.y, duration)
+            ActionType.SWIPE       -> dispatchSwipe(action.x, action.y, action.endX, action.endY, duration)
             ActionType.MULTI_TOUCH -> dispatchMultiTouch(action, duration)
         }
     }
 
     private fun dispatchTap(x: Float, y: Float, duration: Long) {
-        val path = Path().apply { moveTo(x, y) }
+        val path = Path().apply { moveTo(x, y); lineTo(x + 1f, y) }
         val stroke = GestureDescription.StrokeDescription(path, 0L, duration.coerceAtLeast(1L))
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        dispatchGesture(gesture, null, null)
+        dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
     }
 
     private fun dispatchSwipe(x: Float, y: Float, endX: Float, endY: Float, duration: Long) {
-        val path = Path().apply {
-            moveTo(x, y)
-            lineTo(endX, endY)
-        }
+        val path = Path().apply { moveTo(x, y); lineTo(endX, endY) }
         val stroke = GestureDescription.StrokeDescription(path, 0L, duration.coerceAtLeast(100L))
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        dispatchGesture(gesture, null, null)
+        dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
     }
 
     private fun dispatchMultiTouch(action: MacroAction, duration: Long) {
         val builder = GestureDescription.Builder()
         action.touchPoints.take(10).forEach { point ->
-            val path = Path().apply { moveTo(point.x, point.y) }
-            builder.addStroke(
-                GestureDescription.StrokeDescription(path, 0L, duration.coerceAtLeast(1L))
-            )
+            val path = Path().apply { moveTo(point.x, point.y); lineTo(point.x + 1f, point.y) }
+            builder.addStroke(GestureDescription.StrokeDescription(path, 0L, duration.coerceAtLeast(1L)))
         }
         dispatchGesture(builder.build(), null, null)
     }
@@ -162,6 +189,6 @@ class MacroAccessibilityService : AccessibilityService() {
     fun stopPlayback() {
         _isPlaying.value = false
         playbackRunnable?.let { handler.removeCallbacks(it) }
-        handler.removeCallbacksAndMessages(null)
+        // Don't remove ALL messages — tapLoop might also be using this handler
     }
 }
