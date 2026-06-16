@@ -8,6 +8,7 @@ import com.ggmacro.app.data.model.ActionType
 import com.ggmacro.app.data.model.Macro
 import com.ggmacro.app.data.model.MacroAction
 import com.ggmacro.app.data.repository.MacroRepository
+import com.ggmacro.app.service.FloatingTriggerButtonService
 import com.ggmacro.app.service.MacroAccessibilityService
 import com.ggmacro.app.service.TouchRecordingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -41,6 +42,9 @@ class MacroDetailViewModel @Inject constructor(
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    private val _isTriggerActive = MutableStateFlow(false)
+    val isTriggerActive: StateFlow<Boolean> = _isTriggerActive.asStateFlow()
 
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage: SharedFlow<String> = _snackbarMessage
@@ -164,5 +168,35 @@ class MacroDetailViewModel @Inject constructor(
 
     fun clearActions() {
         _actions.value = emptyList()
+    }
+
+    fun startTriggerButton() {
+        val currentActions = _actions.value
+        if (currentActions.isEmpty()) {
+            viewModelScope.launch { _snackbarMessage.emit("Add actions first, then place the trigger button") }
+            return
+        }
+        FloatingTriggerButtonService.start(
+            context = context,
+            actions = currentActions,
+            macroName = _macroName.value.ifBlank { "Macro" },
+            loopCount = _loopCount.value,
+            speed = _playbackSpeed.value
+        )
+        _isTriggerActive.value = true
+        viewModelScope.launch { _snackbarMessage.emit("Trigger button placed — hold it to run the macro") }
+    }
+
+    fun stopTriggerButton() {
+        FloatingTriggerButtonService.stop(context)
+        _isTriggerActive.value = false
+        viewModelScope.launch { _snackbarMessage.emit("Trigger button removed") }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        if (_isTriggerActive.value) {
+            FloatingTriggerButtonService.stop(context)
+        }
     }
 }
