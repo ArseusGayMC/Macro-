@@ -36,6 +36,7 @@ fun MacroDetailScreen(
     val actions by viewModel.actions.collectAsStateWithLifecycle()
     val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val isTriggerActive by viewModel.isTriggerActive.collectAsStateWithLifecycle()
     val macroName by viewModel.macroName.collectAsStateWithLifecycle()
     val loopCount by viewModel.loopCount.collectAsStateWithLifecycle()
     val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
@@ -143,6 +144,7 @@ fun MacroDetailScreen(
             item {
                 SectionCard(title = "Actions (${actions.size})") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Row 1: Add Action + Test/Stop
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -188,6 +190,71 @@ fun MacroDetailScreen(
                                     Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text("Test", fontSize = 13.sp)
+                                }
+                            }
+                        }
+
+                        // Row 2: Trigger Button (Place on screen)
+                        if (actions.isNotEmpty()) {
+                            HorizontalDivider(
+                                color = GamingBorder,
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+
+                            if (isTriggerActive) {
+                                Button(
+                                    onClick = { viewModel.stopTriggerButton() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = NeonRed.copy(alpha = 0.15f),
+                                        contentColor = NeonRed
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Remove Trigger Button", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            } else {
+                                Button(
+                                    onClick = { viewModel.startTriggerButton() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = NeonGreen.copy(alpha = 0.15f),
+                                        contentColor = NeonGreen
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.TouchApp, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Place Trigger Button on Screen", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+
+                            if (isTriggerActive) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(NeonGreen.copy(alpha = 0.07f))
+                                        .border(1.dp, NeonGreen.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        null,
+                                        tint = NeonGreen.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        "Trigger button is on screen. Drag to move it. Hold to run macro.",
+                                        fontSize = 11.sp,
+                                        color = NeonGreen.copy(alpha = 0.8f),
+                                        lineHeight = 16.sp
+                                    )
                                 }
                             }
                         }
@@ -375,45 +442,49 @@ private fun ActionRow(index: Int, action: MacroAction, onDelete: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("#$index", color = TextDisabled, fontSize = 11.sp, modifier = Modifier.width(28.dp))
-        Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(color.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = action.type.name.replace("_", " "),
-                color = color,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
+                text = "#$index  ${action.type.name.replace('_', ' ')}",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
             )
             Text(
-                text = buildString {
-                    append("(${action.x.toInt()}, ${action.y.toInt()})")
-                    if (action.type == ActionType.SWIPE) append(" → (${action.endX.toInt()}, ${action.endY.toInt()})")
-                    append("  ${action.duration}ms")
-                    if (action.delayBefore > 0) append("  +${action.delayBefore}ms delay")
-                },
-                color = TextDisabled,
-                fontSize = 10.sp
+                text = when (action.type) {
+                    ActionType.SWIPE -> "(${action.x.toInt()},${action.y.toInt()}) → (${action.endX.toInt()},${action.endY.toInt()})"
+                    ActionType.MULTI_TOUCH -> "${action.touchPoints.size} points"
+                    else -> "(${action.x.toInt()}, ${action.y.toInt()})"
+                } + "  ${action.duration}ms",
+                fontSize = 11.sp,
+                color = TextSecondary
             )
         }
-        IconButton(
-            onClick = onDelete,
-            modifier = Modifier.size(30.dp)
-        ) {
-            Icon(Icons.Default.Close, null, tint = NeonRed, modifier = Modifier.size(16.dp))
+        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Close, "Delete", tint = NeonRed.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddActionDialog(
     onDismiss: () -> Unit,
     onAdd: (ActionType, Float, Float, Float, Float) -> Unit
 ) {
     var selectedType by remember { mutableStateOf(ActionType.TAP) }
-    var x by remember { mutableStateOf("500") }
-    var y by remember { mutableStateOf("1000") }
-    var endX by remember { mutableStateOf("800") }
-    var endY by remember { mutableStateOf("1000") }
+    var xText by remember { mutableStateOf("500") }
+    var yText by remember { mutableStateOf("900") }
+    var endXText by remember { mutableStateOf("500") }
+    var endYText by remember { mutableStateOf("400") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -421,13 +492,14 @@ private fun AddActionDialog(
         title = { Text("Add Action", color = TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Action Type", color = TextSecondary, fontSize = 12.sp)
+                Text("Action Type", fontSize = 12.sp, color = NeonCyan)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ActionType.values().forEach { type ->
+                    ActionType.entries.forEach { type ->
+                        val selected = selectedType == type
                         FilterChip(
-                            selected = selectedType == type,
+                            selected = selected,
                             onClick = { selectedType = type },
-                            label = { Text(type.name.take(5), fontSize = 10.sp) },
+                            label = { Text(type.name.replace('_', ' '), fontSize = 10.sp) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = NeonCyan.copy(alpha = 0.2f),
                                 selectedLabelColor = NeonCyan,
@@ -436,7 +508,7 @@ private fun AddActionDialog(
                             ),
                             border = FilterChipDefaults.filterChipBorder(
                                 enabled = true,
-                                selected = selectedType == type,
+                                selected = selected,
                                 selectedBorderColor = NeonCyan,
                                 borderColor = GamingBorder
                             )
@@ -445,44 +517,42 @@ private fun AddActionDialog(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CoordInput("X", x, { x = it }, Modifier.weight(1f))
-                    CoordInput("Y", y, { y = it }, Modifier.weight(1f))
+                    CoordField("X", xText, Modifier.weight(1f)) { xText = it }
+                    CoordField("Y", yText, Modifier.weight(1f)) { yText = it }
                 }
 
                 if (selectedType == ActionType.SWIPE) {
+                    Text("End Position", fontSize = 12.sp, color = NeonCyan)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CoordInput("End X", endX, { endX = it }, Modifier.weight(1f))
-                        CoordInput("End Y", endY, { endY = it }, Modifier.weight(1f))
+                        CoordField("End X", endXText, Modifier.weight(1f)) { endXText = it }
+                        CoordField("End Y", endYText, Modifier.weight(1f)) { endYText = it }
                     }
                 }
             }
         },
         confirmButton = {
-            Button(
+            TextButton(
                 onClick = {
-                    onAdd(
-                        selectedType,
-                        x.toFloatOrNull() ?: 500f,
-                        y.toFloatOrNull() ?: 1000f,
-                        endX.toFloatOrNull() ?: 800f,
-                        endY.toFloatOrNull() ?: 1000f
-                    )
+                    val x = xText.toFloatOrNull() ?: 500f
+                    val y = yText.toFloatOrNull() ?: 900f
+                    val endX = endXText.toFloatOrNull() ?: 500f
+                    val endY = endYText.toFloatOrNull() ?: 400f
+                    onAdd(selectedType, x, y, endX, endY)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = GamingBlack)
-            ) {
-                Text("Add", fontWeight = FontWeight.Bold)
-            }
+                colors = ButtonDefaults.textButtonColors(contentColor = NeonCyan)
+            ) { Text("Add", fontWeight = FontWeight.Bold) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = TextSecondary)) {
-                Text("Cancel")
-            }
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = TextSecondary)
+            ) { Text("Cancel") }
         }
     )
 }
 
 @Composable
-private fun CoordInput(label: String, value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun CoordField(label: String, value: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
