@@ -34,15 +34,17 @@ class FloatingTriggerButtonService : Service() {
         const val EXTRA_MACRO_NAME = "macro_name"
         const val EXTRA_TAP_DURATION = "tap_duration"
         const val EXTRA_TAP_DELAY = "tap_delay"
+        const val EXTRA_HOLD_THRESHOLD = "hold_threshold"
 
         @Volatile
         var isRunning = false
 
-        fun start(context: Context, macroName: String, tapDuration: Long, tapDelay: Long) {
+        fun start(context: Context, macroName: String, tapDuration: Long, tapDelay: Long, holdThreshold: Long = 350L) {
             val intent = Intent(context, FloatingTriggerButtonService::class.java).apply {
                 putExtra(EXTRA_MACRO_NAME, macroName)
                 putExtra(EXTRA_TAP_DURATION, tapDuration)
                 putExtra(EXTRA_TAP_DELAY, tapDelay)
+                putExtra(EXTRA_HOLD_THRESHOLD, holdThreshold)
             }
             context.startForegroundService(intent)
         }
@@ -60,6 +62,7 @@ class FloatingTriggerButtonService : Service() {
     private var macroName: String = "Macro"
     private var tapDuration: Long = 50L
     private var tapDelay: Long = 50L
+    private var holdThreshold: Long = 350L
 
     @Volatile
     private var isExecuting = false
@@ -78,6 +81,7 @@ class FloatingTriggerButtonService : Service() {
         macroName = intent?.getStringExtra(EXTRA_MACRO_NAME)?.ifBlank { "Macro" } ?: "Macro"
         tapDuration = intent?.getLongExtra(EXTRA_TAP_DURATION, 50L) ?: 50L
         tapDelay = (intent?.getLongExtra(EXTRA_TAP_DELAY, 50L) ?: 50L).coerceAtLeast(30L)
+        holdThreshold = (intent?.getLongExtra(EXTRA_HOLD_THRESHOLD, 350L) ?: 350L).coerceIn(50L, 2000L)
         if (triggerView == null) showTriggerButton()
         return START_STICKY
     }
@@ -162,7 +166,7 @@ class FloatingTriggerButtonService : Service() {
                         downRawX = event.rawX
                         downRawY = event.rawY
                         hasMoved = false
-                        handler.postDelayed(longPressRunnable, 350L)
+                        handler.postDelayed(longPressRunnable, holdThreshold)
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dx = event.rawX - downRawX
