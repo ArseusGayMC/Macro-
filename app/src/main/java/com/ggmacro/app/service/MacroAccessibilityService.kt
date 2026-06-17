@@ -6,7 +6,6 @@ import android.content.Intent
 import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.ggmacro.app.data.model.ActionType
 import com.ggmacro.app.data.model.MacroAction
@@ -16,12 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 class MacroAccessibilityService : AccessibilityService() {
 
     companion object {
-        private const val TAG = "MacroA11yService"
-
-        @Volatile
-        private var instance: MacroAccessibilityService? = null
+        @Volatile private var instance: MacroAccessibilityService? = null
         fun getInstance(): MacroAccessibilityService? = instance
-
         val isRunning = MutableStateFlow(false)
     }
 
@@ -30,20 +25,19 @@ class MacroAccessibilityService : AccessibilityService() {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying
 
-    // ── Trigger tap-loop ─────────────────────────────────────────────────
     @Volatile private var tapLooping = false
 
+    // ── Tap loop (trigger button) ─────────────────────────────────────────
     fun startTapLoop(x: Float, y: Float, duration: Long, delay: Long) {
-        if (tapLooping) return
         tapLooping = true
-        scheduleTap(x, y, duration.coerceAtLeast(1L), delay.coerceAtLeast(16L))
+        doTap(x, y, duration.coerceAtLeast(1L), delay.coerceAtLeast(16L))
     }
 
     fun stopTapLoop() {
         tapLooping = false
     }
 
-    private fun scheduleTap(x: Float, y: Float, duration: Long, delay: Long) {
+    private fun doTap(x: Float, y: Float, duration: Long, delay: Long) {
         if (!tapLooping) return
         val path = Path().apply { moveTo(x, y); lineTo(x + 1f, y) }
         val stroke = GestureDescription.StrokeDescription(path, 0L, duration)
@@ -51,28 +45,29 @@ class MacroAccessibilityService : AccessibilityService() {
             GestureDescription.Builder().addStroke(stroke).build(),
             object : GestureResultCallback() {
                 override fun onCompleted(g: GestureDescription?) {
-                    if (tapLooping) handler.postDelayed({ scheduleTap(x, y, duration, delay) }, delay)
+                    if (tapLooping) handler.postDelayed({ doTap(x, y, duration, delay) }, delay)
                 }
                 override fun onCancelled(g: GestureDescription?) {
-                    if (tapLooping) handler.postDelayed({ scheduleTap(x, y, duration, delay) }, delay)
+                    // cancelled = another gesture was running; wait longer then retry
+                    if (tapLooping) handler.postDelayed({ doTap(x, y, duration, delay) }, delay + 30L)
                 }
             }, handler
         )
-        if (!ok && tapLooping) {
-            handler.postDelayed({ scheduleTap(x, y, duration, delay) }, delay)
+        if (!ok) {
+            // dispatchGesture returned false: service busy, retry after delay
+            if (tapLooping) handler.postDelayed({ doTap(x, y, duration, delay) }, delay)
         }
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
     override fun onServiceConnected() {
         super.onServiceConnected()
+        tapLooping = false   // reset any stale state
         instance = this
         isRunning.value = true
-        Log.d(TAG, "Accessibility service connected")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
-
     override fun onInterrupt() {}
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -88,7 +83,8 @@ class MacroAccessibilityService : AccessibilityService() {
         tapLooping = false
         instance = null
         isRunning.value = false
-        stopPlayback()
+        _isPlaying.value = false
+        // Don't removeCallbacksAndMessages here — just let flags stop the loops
     }
 
     // ── Macro playback ─────────────────────────────────────────────────────
@@ -98,29 +94,31 @@ class MacroAccessibilityService : AccessibilityService() {
         playbackSpeed: Float,
         onComplete: () -> Unit
     ) {
-        stopPlayback()
-        _isPlaying.value = true
-        var repeatCount = 0
-        val maxLoops = if (loopCount == -1) Int.MAX_VALUE else loopCount
+        _isPlaying.value = false  // signal any running playback to stop (flag-based, no handler flush)
+        handler.postDelayed({
+            _isPlaying.value = true
+            var repeatCount = 0
+            val maxLoops = if (loopCount == -1) Int.MAX_VALUE else loopCount
 
-        fun runLoop() {
-            if (!_isPlaying.value || repeatCount >= maxLoops) {
-                _isPlaying.value = false
-                handler.post { onComplete() }
-                return
+            fun runLoop() {
+                if (!_isPlaying.value || repeatCount >= maxLoops) {
+                    _isPlaying.value = false
+                    handler.post { onComplete() }
+                    return
+                }
+                repeatCount++
+                scheduleActions(actions, playbackSpeed) { runLoop() }
             }
-            repeatCount++
-            scheduleActions(actions, playbackSpeed) { runLoop() }
-        }
-        handler.post { runLoop() }
+            runLoop()
+        }, 50L)  // brief delay so any in-flight gesture can complete
     }
 
     private fun scheduleActions(actions: List<MacroAction>, speed: Float, onDone: () -> Unit) {
         if (actions.isEmpty()) { onDone(); return }
         var delay = 0L
         actions.forEach { action ->
-            val d  = (action.delayBefore / speed).toLong()
-            val dur = (action.duration / speed).toLong()
+            val d   = (action.delayBefore / speed).toLong()
+            val dur = (action.duration    / speed).toLong()
             delay += d
             val captured = delay
             handler.postDelayed({ if (_isPlaying.value) dispatchAction(action, dur) }, captured)
@@ -131,9 +129,9 @@ class MacroAccessibilityService : AccessibilityService() {
 
     private fun dispatchAction(action: MacroAction, duration: Long) {
         when (action.type) {
-            ActionType.TAP        -> dispatchTap(action.x, action.y, duration)
-            ActionType.LONG_PRESS -> dispatchTap(action.x, action.y, duration)
-            ActionType.SWIPE      -> dispatchSwipe(action.x, action.y, action.endX, action.endY, duration)
+            ActionType.TAP         -> dispatchTap(action.x, action.y, duration)
+            ActionType.LONG_PRESS  -> dispatchTap(action.x, action.y, duration)
+            ActionType.SWIPE       -> dispatchSwipe(action.x, action.y, action.endX, action.endY, duration)
             ActionType.MULTI_TOUCH -> dispatchMultiTouch(action, duration)
         }
     }
@@ -167,6 +165,7 @@ class MacroAccessibilityService : AccessibilityService() {
 
     fun stopPlayback() {
         _isPlaying.value = false
-        handler.removeCallbacksAndMessages(null)
+        // NOTE: do NOT call handler.removeCallbacksAndMessages — that would kill the tap loop!
+        // The _isPlaying flag check in each callback handles the stopping.
     }
 }
