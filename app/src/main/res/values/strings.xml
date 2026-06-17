@@ -1,6 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">GG Macro</string>
-    <string name="accessibility_service_label">GG Macro Otomatik Tıklama</string>
-    <string name="accessibility_service_description">Oyun içinde otomatik dokunma yapabilmek için gereklidir. Gestures iznini kullanır.</string>
+    <string name="app_name">AutoClicker</string>
+    <string name="accessibility_service_label">Oto-Tıklayıcı</string>
+    <string name="accessibility_service_description">Belirtilen ekran koordinatına her 100ms\'de bir otomatik tıklama yapar.</string>
 </resources>
