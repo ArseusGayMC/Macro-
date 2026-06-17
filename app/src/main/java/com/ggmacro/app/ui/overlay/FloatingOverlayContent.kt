@@ -8,7 +8,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,18 +36,20 @@ fun FloatingOverlayContent(
     onRecord: () -> Unit,
     onPlay: () -> Unit,
     onStop: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onHoldStart: () -> Unit = {},
+    onHoldEnd: () -> Unit = {}
 ) {
     val currentState by state.collectAsState()
     var expanded by remember { mutableStateOf(false) }
 
     val isRecording = currentState == OverlayState.RECORDING
-    val isPlaying = currentState == OverlayState.PLAYING
+    val isPlaying   = currentState == OverlayState.PLAYING
 
     val pulseTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by pulseTransition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.12f,
+        targetValue  = 1.12f,
         animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
         label = "scale"
     )
@@ -56,8 +57,8 @@ fun FloatingOverlayContent(
     val mainColor by animateColorAsState(
         targetValue = when {
             isRecording -> NeonRed
-            isPlaying -> NeonCyan
-            else -> NeonPurple
+            isPlaying   -> NeonCyan
+            else        -> NeonPurple
         },
         label = "color"
     )
@@ -67,6 +68,7 @@ fun FloatingOverlayContent(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.padding(8.dp)
     ) {
+        // ── Expanded control panel ────────────────────────────────────────
         if (expanded) {
             Column(
                 modifier = Modifier
@@ -88,15 +90,15 @@ fun FloatingOverlayContent(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OverlayIconButton(
-                        icon = if (isRecording) Icons.Default.Stop else Icons.Default.FiberManualRecord,
-                        tint = NeonRed,
+                        icon  = if (isRecording) Icons.Default.Stop else Icons.Default.FiberManualRecord,
+                        tint  = NeonRed,
                         label = if (isRecording) "Stop Rec" else "Record",
                         onClick = onRecord,
                         scale = if (isRecording) pulseScale else 1f
                     )
                     OverlayIconButton(
-                        icon = if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
-                        tint = NeonCyan,
+                        icon  = if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        tint  = NeonCyan,
                         label = if (isPlaying) "Stop" else "Play",
                         onClick = if (isPlaying) onStop else onPlay,
                         scale = if (isPlaying) pulseScale else 1f
@@ -114,6 +116,9 @@ fun FloatingOverlayContent(
             }
         }
 
+        // ── Main floating button ─────────────────────────────────────────
+        // Short tap  → toggle expanded panel
+        // Press & hold → start macro immediately; release → stop macro
         Box(
             modifier = Modifier
                 .size(56.dp)
@@ -124,15 +129,41 @@ fun FloatingOverlayContent(
                         colors = listOf(mainColor.copy(alpha = 0.3f), GamingCard)
                     )
                 )
-                .border(2.dp, mainColor, CircleShape),
+                .border(2.dp, mainColor, CircleShape)
+                // ✅ Hold-to-start: press = start macro instantly, release = stop macro
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            // Wait for finger down
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
+                            android.util.Log.d("GGMacro", "FloatingOverlay ACTION_DOWN — starting macro")
+                            onHoldStart()
+
+                            // Wait until all fingers are lifted
+                            var held = true
+                            while (held) {
+                                val event = awaitPointerEvent()
+                                if (event.changes.none { it.pressed }) {
+                                    held = false
+                                }
+                                event.changes.forEach { it.consume() }
+                            }
+
+                            android.util.Log.d("GGMacro", "FloatingOverlay ACTION_UP — stopping macro")
+                            onHoldEnd()
+                        }
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
+            // Tap indicator — tap to open/close the control panel
             IconButton(onClick = { expanded = !expanded }) {
                 Icon(
                     imageVector = when {
                         isRecording -> Icons.Default.FiberManualRecord
-                        isPlaying -> Icons.Default.PlayArrow
-                        else -> Icons.Default.Games
+                        isPlaying   -> Icons.Default.PlayArrow
+                        else        -> Icons.Default.Games
                     },
                     contentDescription = "Toggle overlay",
                     tint = mainColor,
