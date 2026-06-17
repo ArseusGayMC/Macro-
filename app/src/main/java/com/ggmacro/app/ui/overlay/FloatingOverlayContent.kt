@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -132,28 +133,15 @@ fun FloatingOverlayContent(
                 .border(2.dp, mainColor, CircleShape)
                 // ✅ Hold-to-start: press = start macro instantly, release = stop macro
                 .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            // Wait for finger down
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            down.consume()
+                    detectTapGestures(
+                        onPress = { _ ->
                             android.util.Log.d("GGMacro", "FloatingOverlay ACTION_DOWN — starting macro")
                             onHoldStart()
-
-                            // Wait until all fingers are lifted
-                            var held = true
-                            while (held) {
-                                val event = awaitPointerEvent()
-                                if (event.changes.none { it.pressed }) {
-                                    held = false
-                                }
-                                event.changes.forEach { it.consume() }
-                            }
-
+                            tryAwaitRelease()
                             android.util.Log.d("GGMacro", "FloatingOverlay ACTION_UP — stopping macro")
                             onHoldEnd()
                         }
-                    }
+                    )
                 },
             contentAlignment = Alignment.Center
         ) {
