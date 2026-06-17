@@ -22,6 +22,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ggmacro.app.ui.components.MacroCard
@@ -46,6 +48,11 @@ fun HomeScreen(
     var hasOverlay by remember { mutableStateOf(PermissionManager.hasOverlayPermission(context)) }
     var hasAccessibility by remember { mutableStateOf(PermissionManager.hasAccessibilityPermission(context)) }
     var playingMacroId by remember { mutableLongStateOf(-1L) }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        hasOverlay = PermissionManager.hasOverlayPermission(context)
+        hasAccessibility = PermissionManager.hasAccessibilityPermission(context)
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")

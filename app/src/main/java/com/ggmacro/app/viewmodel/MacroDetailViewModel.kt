@@ -87,7 +87,9 @@ class MacroDetailViewModel @Inject constructor(
                     existing.copy(
                         name = name,
                         tapDuration = _tapDuration.value,
-                        actionDelay = _tapDelay.value
+                        actionDelay = _tapDelay.value,
+                        // holdThreshold can be saved in actionDelay or a new field if added to DB, 
+                        // but for now we keep it consistent with the existing model
                     )
                 )
             } else {
@@ -132,5 +134,9 @@ class MacroDetailViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        // Stop recording if VM is cleared to avoid leaks or stale states
+        if (recordingManager.isRecording.value) {
+            recordingManager.stopRecording()
+        }
     }
 }

@@ -27,12 +27,29 @@ import com.ggmacro.app.MainActivity
 import com.ggmacro.app.R
 import com.ggmacro.app.data.model.Macro
 import com.ggmacro.app.data.model.MacroAction
+import com.ggmacro.app.data.repository.MacroRepository
 import com.ggmacro.app.ui.overlay.FloatingOverlayContent
+import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 import com.ggmacro.app.ui.theme.GGMacroTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
+@AndroidEntryPoint
 class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
+
+    @Inject
+    lateinit var repository: MacroRepository
+
+    @Inject
+    lateinit var recordingManager: TouchRecordingManager
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     companion object {
         const val CHANNEL_ID = "gg_macro_overlay"
@@ -68,7 +85,6 @@ class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwne
     private lateinit var windowManager: WindowManager
     private var overlayView: View? = null
     private var touchRecordView: View? = null
-    private val recordingManager = TouchRecordingManager()
 
     private var activeMacroId: Long = -1L
     private var activeMacroName: String = ""
@@ -96,6 +112,7 @@ class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwne
 
     override fun onDestroy() {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        serviceScope.cancel() // Cancel all ongoing coroutines
         removeOverlayView()
         removeTouchRecordView()
         _overlayState.value = OverlayState.IDLE
@@ -164,7 +181,18 @@ class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwne
 
     private fun toggleRecording() {
         if (_currentState.value == OverlayState.RECORDING) {
-            pendingActions = recordingManager.stopRecording()
+            val recorded = recordingManager.stopRecording()
+            pendingActions = recorded
+            
+            // Save to database if we have an active macro
+            if (activeMacroId != -1L && recorded.isNotEmpty()) {
+                serviceScope.launch {
+                    repository.getMacroById(activeMacroId)?.let { macro ->
+                        repository.updateMacro(macro.copy(actionsJson = repository.serializeActions(recorded)))
+                    }
+                }
+            }
+            
             removeTouchRecordView()
             _currentState.value = OverlayState.IDLE
             _overlayState.value = OverlayState.IDLE
@@ -178,12 +206,24 @@ class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwne
 
     private fun playMacro() {
         val service = MacroAccessibilityService.getInstance() ?: return
-        if (pendingActions.isEmpty()) return
-        _currentState.value = OverlayState.PLAYING
-        _overlayState.value = OverlayState.PLAYING
-        service.playMacro(pendingActions, 1, 1.0f) {
-            _currentState.value = OverlayState.IDLE
-            _overlayState.value = OverlayState.IDLE
+        
+        serviceScope.launch {
+            val actions = if (pendingActions.isNotEmpty()) {
+                pendingActions
+            } else if (activeMacroId != -1L) {
+                repository.getMacroById(activeMacroId)?.let { repository.getMacroActions(it) } ?: emptyList()
+            } else {
+                emptyList()
+            }
+
+            if (actions.isEmpty()) return@launch
+
+            _currentState.value = OverlayState.PLAYING
+            _overlayState.value = OverlayState.PLAYING
+            service.playMacro(actions, 1, 1.0f) {
+                _currentState.value = OverlayState.IDLE
+                _overlayState.value = OverlayState.IDLE
+            }
         }
     }
 
