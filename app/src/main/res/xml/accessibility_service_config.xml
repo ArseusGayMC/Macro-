@@ -1,24 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    accessibility_service_config.xml
-    Konum: app/src/main/res/xml/accessibility_service_config.xml
-
-    Bu dosya AccessibilityService'in hangi olayları dinleyeceğini,
-    hangi izinlere ihtiyacı olduğunu ve kullanıcıya gösterilecek
-    açıklamayı tanımlar.
-
-    Açıklamalar:
-      accessibilityEventTypes  → "typeAllMask" tüm olayları kapsar.
-                                  Sadece belirli olaylar gerekiyorsa şöyle ayırın:
-                                  typeWindowStateChanged|typeViewClicked
-      accessibilityFeedbackType → "feedbackGeneric" sesli/dokunsal geri bildirim kullanmaz.
-      canPerformGestures        → dispatchGesture() kullanabilmek için TRUE olmalıdır.
-                                  Bu izin olmadan sistem tıklamaları çalışmaz.
-      canRetrieveWindowContent  → Ekran içeriğini okumak istiyorsanız true yapın.
-                                  Sadece gesture kullanacaksanız false bırakabilirsiniz.
-      notificationTimeout       → Aynı türdeki olaylar arasındaki minimum süre (ms).
-      settingsActivity          → Kullanıcının servis ayarlarını yapılandırabileceği Activity.
-                                  Ayar ekranı yoksa bu satırı silin.
+    canPerformGestures="true" → dispatchGesture() için zorunlu
+    notificationTimeout="100" → 100ms aralıkla olay işle
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeAllMask"
@@ -26,5 +9,4 @@
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="false"
     android:description="@string/accessibility_service_description"
-    android:notificationTimeout="100"
-    android:settingsActivity="com.example.autoclicker.SettingsActivity" />
+    android:notificationTimeout="100" />
