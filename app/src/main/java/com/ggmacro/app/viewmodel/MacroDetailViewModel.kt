@@ -109,12 +109,7 @@ class MacroDetailViewModel @Inject constructor(
             }
             return
         }
-        FloatingTriggerButtonService.start(
-            ctx         = context,
-            macroName   = _macroName.value.trim().ifBlank { "Macro" },
-            tapDuration = _tapDuration.value,
-            tapDelay    = _tapDelay.value
-        )
+        FloatingTriggerButtonService.start(context)
         _isTriggerActive.value = true
         viewModelScope.launch {
             _snackbarMessage.emit("Ekranda 2 overlay belirdi - mavi=buton, kirmizi=hedef")
