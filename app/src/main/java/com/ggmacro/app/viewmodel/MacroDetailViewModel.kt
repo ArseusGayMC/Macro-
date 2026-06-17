@@ -4,9 +4,7 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ggmacro.app.data.model.ActionType
 import com.ggmacro.app.data.model.Macro
-import com.ggmacro.app.data.model.MacroAction
 import com.ggmacro.app.data.repository.MacroRepository
 import com.ggmacro.app.service.FloatingTriggerButtonService
 import com.ggmacro.app.service.MacroAccessibilityService
@@ -34,169 +32,105 @@ class MacroDetailViewModel @Inject constructor(
     private val _macro = MutableStateFlow<Macro?>(null)
     val macro: StateFlow<Macro?> = _macro.asStateFlow()
 
-    private val _actions = MutableStateFlow<List<MacroAction>>(emptyList())
-    val actions: StateFlow<List<MacroAction>> = _actions.asStateFlow()
-
-    private val _isRecording = MutableStateFlow(false)
-    val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
-
-    private val _isPlaying = MutableStateFlow(false)
-    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
-
-    // Synced with FloatingTriggerButtonService.isRunning so it survives ViewModel recreation
-    private val _isTriggerActive = MutableStateFlow(FloatingTriggerButtonService.isRunning)
-    val isTriggerActive: StateFlow<Boolean> = _isTriggerActive.asStateFlow()
-
-    private val _snackbarMessage = MutableSharedFlow<String>()
-    val snackbarMessage: SharedFlow<String> = _snackbarMessage
-
     private val _macroName = MutableStateFlow("")
     val macroName: StateFlow<String> = _macroName.asStateFlow()
-
-    private val _loopCount = MutableStateFlow(1)
-    val loopCount: StateFlow<Int> = _loopCount.asStateFlow()
-
-    private val _playbackSpeed = MutableStateFlow(1.0f)
-    val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
 
     private val _tapDuration = MutableStateFlow(50L)
     val tapDuration: StateFlow<Long> = _tapDuration.asStateFlow()
 
-    private val _actionDelay = MutableStateFlow(0L)
+    private val _tapDelay = MutableStateFlow(50L)
+    val tapDelay: StateFlow<Long> = _tapDelay.asStateFlow()
 
-    private val _holdThreshold = MutableStateFlow(350L)
+    private val _holdThreshold = MutableStateFlow(400L)
     val holdThreshold: StateFlow<Long> = _holdThreshold.asStateFlow()
-    val actionDelay: StateFlow<Long> = _actionDelay.asStateFlow()
+
+    private val _isTriggerActive = MutableStateFlow(FloatingTriggerButtonService.isRunning)
+    val isTriggerActive: StateFlow<Boolean> = _isTriggerActive.asStateFlow()
+
+    private val _accessibilityRunning = MutableStateFlow(MacroAccessibilityService.isRunning.value)
+    val accessibilityRunning: StateFlow<Boolean> = _accessibilityRunning.asStateFlow()
+
+    private val _snackbarMessage = MutableSharedFlow<String>()
+    val snackbarMessage: SharedFlow<String> = _snackbarMessage
 
     init {
+        // Track accessibility service state
+        viewModelScope.launch {
+            MacroAccessibilityService.isRunning.collect { running ->
+                _accessibilityRunning.value = running
+            }
+        }
+
         if (macroId > 0) {
             viewModelScope.launch {
-                val existing = repository.getMacroById(macroId)
-                existing?.let { m ->
+                repository.getMacroById(macroId)?.let { m ->
                     _macro.value = m
                     _macroName.value = m.name
-                    _loopCount.value = m.loopCount
-                    _playbackSpeed.value = m.playbackSpeed
                     _tapDuration.value = m.tapDuration
-                    _actionDelay.value = m.actionDelay
-                    _actions.value = repository.getMacroActions(m)
+                    _tapDelay.value = m.actionDelay.coerceAtLeast(16L)
                 }
             }
         }
     }
 
     fun setName(name: String) { _macroName.value = name }
-    fun setLoopCount(count: Int) { _loopCount.value = count }
-    fun setPlaybackSpeed(speed: Float) { _playbackSpeed.value = speed }
-    fun setTapDuration(ms: Long) { _tapDuration.value = ms }
-    fun setActionDelay(ms: Long) { _actionDelay.value = ms }
+    fun setTapDuration(ms: Long) { _tapDuration.value = ms.coerceAtLeast(1L) }
+    fun setTapDelay(ms: Long) { _tapDelay.value = ms.coerceAtLeast(16L) }
     fun setHoldThreshold(ms: Long) { _holdThreshold.value = ms.coerceIn(50L, 2000L) }
-
-    fun addManualAction(type: ActionType, x: Float, y: Float, endX: Float = 0f, endY: Float = 0f) {
-        val action = MacroAction(
-            type = type,
-            x = x, y = y,
-            endX = endX, endY = endY,
-            duration = _tapDuration.value,
-            delayBefore = _actionDelay.value
-        )
-        _actions.value = _actions.value + action
-    }
-
-    fun removeAction(action: MacroAction) {
-        _actions.value = _actions.value.filter { it.id != action.id }
-    }
-
-    fun reorderActions(from: Int, to: Int) {
-        val list = _actions.value.toMutableList()
-        if (from in list.indices && to in list.indices) {
-            val item = list.removeAt(from)
-            list.add(to, item)
-            _actions.value = list
-        }
-    }
 
     fun saveMacro() {
         viewModelScope.launch {
             val name = _macroName.value.trim().ifBlank { "Unnamed Macro" }
-            val actionsJson = repository.serializeActions(_actions.value)
             val existing = _macro.value
             if (existing != null) {
                 repository.updateMacro(
                     existing.copy(
                         name = name,
-                        actionsJson = actionsJson,
-                        loopCount = _loopCount.value,
-                        playbackSpeed = _playbackSpeed.value,
                         tapDuration = _tapDuration.value,
-                        actionDelay = _actionDelay.value
+                        actionDelay = _tapDelay.value
                     )
                 )
             } else {
                 val id = repository.saveMacro(
                     Macro(
                         name = name,
-                        actionsJson = actionsJson,
-                        loopCount = _loopCount.value,
-                        playbackSpeed = _playbackSpeed.value,
                         tapDuration = _tapDuration.value,
-                        actionDelay = _actionDelay.value
+                        actionDelay = _tapDelay.value
                     )
                 )
                 _macro.value = repository.getMacroById(id)
             }
-            _snackbarMessage.emit("Macro saved")
+            _snackbarMessage.emit("Kaydedildi ✓")
         }
-    }
-
-    fun playMacro() {
-        val service = MacroAccessibilityService.getInstance()
-        if (service == null) {
-            viewModelScope.launch { _snackbarMessage.emit("Enable Accessibility Service first") }
-            return
-        }
-        val currentActions = _actions.value
-        if (currentActions.isEmpty()) {
-            viewModelScope.launch { _snackbarMessage.emit("Add actions before playing") }
-            return
-        }
-        _isPlaying.value = true
-        service.playMacro(currentActions, _loopCount.value, _playbackSpeed.value) {
-            _isPlaying.value = false
-        }
-    }
-
-    fun stopPlayback() {
-        MacroAccessibilityService.getInstance()?.stopPlayback()
-        _isPlaying.value = false
-    }
-
-    fun clearActions() {
-        _actions.value = emptyList()
     }
 
     fun startTriggerButton() {
+        if (!MacroAccessibilityService.isRunning.value) {
+            viewModelScope.launch {
+                _snackbarMessage.emit("Önce Erişilebilirlik Servisi'ni aç!")
+            }
+            return
+        }
         FloatingTriggerButtonService.start(
-            context = context,
-            macroName = _macroName.value.trim().ifBlank { "Macro" },
-            tapDuration = _tapDuration.value,
-            tapDelay = _actionDelay.value.coerceAtLeast(30L),
-            holdThreshold = _holdThreshold.value
+            ctx          = context,
+            macroName    = _macroName.value.trim().ifBlank { "Macro" },
+            tapDuration  = _tapDuration.value,
+            tapDelay     = _tapDelay.value,
+            holdMs       = _holdThreshold.value
         )
         _isTriggerActive.value = true
         viewModelScope.launch {
-            _snackbarMessage.emit("Tetik buton eklendi — sürükle, basılı tut → tıklar")
+            _snackbarMessage.emit("Ekranda 2 overlay belirdi — mavi=buton, kırmızı=hedef")
         }
     }
 
     fun stopTriggerButton() {
         FloatingTriggerButtonService.stop(context)
         _isTriggerActive.value = false
-        viewModelScope.launch { _snackbarMessage.emit("Tetik buton kaldırıldı") }
+        viewModelScope.launch { _snackbarMessage.emit("Overlay kaldırıldı") }
     }
 
     override fun onCleared() {
         super.onCleared()
-        // Do NOT auto-stop — user may want trigger button to persist after navigating away
     }
 }
