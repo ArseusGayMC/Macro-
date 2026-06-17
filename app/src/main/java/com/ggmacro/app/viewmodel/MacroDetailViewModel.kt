@@ -54,13 +54,11 @@ class MacroDetailViewModel @Inject constructor(
     val snackbarMessage: SharedFlow<String> = _snackbarMessage
 
     init {
-        // Track accessibility service state
         viewModelScope.launch {
             MacroAccessibilityService.isRunning.collect { running ->
                 _accessibilityRunning.value = running
             }
         }
-
         if (macroId > 0) {
             viewModelScope.launch {
                 repository.getMacroById(macroId)?.let { m ->
@@ -87,9 +85,7 @@ class MacroDetailViewModel @Inject constructor(
                     existing.copy(
                         name = name,
                         tapDuration = _tapDuration.value,
-                        actionDelay = _tapDelay.value,
-                        // holdThreshold can be saved in actionDelay or a new field if added to DB, 
-                        // but for now we keep it consistent with the existing model
+                        actionDelay = _tapDelay.value
                     )
                 )
             } else {
@@ -102,14 +98,14 @@ class MacroDetailViewModel @Inject constructor(
                 )
                 _macro.value = repository.getMacroById(id)
             }
-            _snackbarMessage.emit("Kaydedildi ✓")
+            _snackbarMessage.emit("Kaydedildi")
         }
     }
 
     fun startTriggerButton() {
         if (!MacroAccessibilityService.isRunning.value) {
             viewModelScope.launch {
-                _snackbarMessage.emit("Önce Erişilebilirlik Servisi'ni aç!")
+                _snackbarMessage.emit("Once Erisilebilirlik Servisi'ni ac!")
             }
             return
         }
@@ -121,19 +117,18 @@ class MacroDetailViewModel @Inject constructor(
         )
         _isTriggerActive.value = true
         viewModelScope.launch {
-            _snackbarMessage.emit("Ekranda 2 overlay belirdi — mavi=buton, kırmızı=hedef")
+            _snackbarMessage.emit("Ekranda 2 overlay belirdi - mavi=buton, kirmizi=hedef")
         }
     }
 
     fun stopTriggerButton() {
         FloatingTriggerButtonService.stop(context)
         _isTriggerActive.value = false
-        viewModelScope.launch { _snackbarMessage.emit("Overlay kaldırıldı") }
+        viewModelScope.launch { _snackbarMessage.emit("Overlay kaldirildi") }
     }
 
     override fun onCleared() {
         super.onCleared()
-        // Stop recording if VM is cleared to avoid leaks or stale states
         if (recordingManager.isRecording.value) {
             recordingManager.stopRecording()
         }
