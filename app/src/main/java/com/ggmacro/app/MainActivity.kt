@@ -138,11 +138,11 @@ class MainActivity : AppCompatActivity() {
             "✅ BAŞLAT'a bas → ekran üstünde + butonu çıkar",
             "✅ + butonuna bas → tıklama butonu oluşur",
             "✅ Butonu sürükle → oyunun istediğin yerine taşı",
-            "✅ BAS & TUT → o noktaya sürekli otomatik tıklama",
-            "✅ Parmağını kaldır → tıklama durur",
-            "✅ Bırakınca × rozetine bas → butonu sil",
+            "✅ Butona bir kez dokun → otomatik tıklama başlar",
+            "✅ Yeşil ■ rozetine bas → tıklama durur",
+            "✅ Tıklama durduktan sonra × rozetine bas → butonu sil",
             "💡 İstediğin kadar buton ekleyebilirsin",
-            "💡 Her buton bağımsız pozisyona sahip"
+            "💡 Her buton bağımsız pozisyon ve durum"
         ).forEach { line ->
             TextView(this).apply {
                 text = line; textSize = 12.5f
