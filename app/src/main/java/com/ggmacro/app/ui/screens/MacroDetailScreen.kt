@@ -178,7 +178,7 @@ fun MacroDetailScreen(
                         ) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Circle, null,
+                                Icon(Icons.Default.FiberManualRecord, null,
                                     tint = NeonCyan, modifier = Modifier.size(10.dp))
                                 Text("Mavi daire = tetik butonu",
                                     fontSize = 12.sp, color = TextSecondary)
