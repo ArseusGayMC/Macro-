@@ -5,69 +5,74 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class AutoClickerService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AutoClickerService"
-        private const val CLICK_INTERVAL_MS = 100L
-        private const val GESTURE_DURATION_MS = 50L
+        private const val INTERVAL_MS = 100L
+        private const val DURATION_MS = 50L
 
         var instance: AutoClickerService? = null
             private set
     }
 
-    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private var clickJob: Job? = null
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var job: Job? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        Log.d(TAG, "Servis baglandi")
+        Log.d(TAG, "Baglandi")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
     override fun onInterrupt() {
-        stopAutoClick()
+        stop()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        serviceScope.cancel()
+        scope.cancel()
         instance = null
     }
 
-    fun startAutoClick(x: Float, y: Float) {
-        stopAutoClick()
-        clickJob = serviceScope.launch {
+    fun start(x: Float, y: Float) {
+        stop()
+        job = scope.launch {
             while (isActive) {
-                withContext(Dispatchers.Main) { dispatchTap(x, y) }
-                delay(CLICK_INTERVAL_MS)
+                tap(x, y)
+                delay(INTERVAL_MS)
             }
         }
+        Log.d(TAG, "Baslatildi: x=$x y=$y")
     }
 
-    fun stopAutoClick() {
-        clickJob?.cancel()
-        clickJob = null
+    fun stop() {
+        job?.cancel()
+        job = null
+        Log.d(TAG, "Durduruldu")
     }
 
-    private fun dispatchTap(x: Float, y: Float) {
-        val path = Path().apply { moveTo(x, y) }
+    private fun tap(x: Float, y: Float) {
+        val path = Path()
+        path.moveTo(x, y)
+
+        val stroke = GestureDescription.StrokeDescription(path, 0L, DURATION_MS)
+
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0L, GESTURE_DURATION_MS))
+            .addStroke(stroke)
             .build()
-        val sent = dispatchGesture(
-            gesture,
-            object : AccessibilityService.GestureResultCallback() {
-                override fun onCancelled(g: GestureDescription) {
-                    Log.w(TAG, "Gestur iptal edildi")
-                }
-            },
-            null
-        )
-        if (!sent) Log.e(TAG, "Gestur gonderilemedi!")
+
+        dispatchGesture(gesture, null, null)
     }
 }
