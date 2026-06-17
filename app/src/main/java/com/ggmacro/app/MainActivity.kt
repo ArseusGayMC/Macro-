@@ -73,7 +73,7 @@ class MainActivity : AppCompatActivity() {
             text = "🚀  BAŞLAT"; textSize = 16f; isAllCaps = false
             setTextColor(0xFF000000.toInt()); setBackgroundColor(0xFF00E5FF.toInt())
             setPadding(dp(16), dp(14), dp(16), dp(14))
-            setOnClickListener { onStart() }
+            setOnClickListener { handleStart() }
         }
         root.addView(btnStart, mw().also { (it as LinearLayout.LayoutParams).setMargins(dp(16), 0, dp(16), 0) })
 
@@ -85,7 +85,7 @@ class MainActivity : AppCompatActivity() {
             setTextColor(0xFFFFFFFF.toInt()); setBackgroundColor(0xFFEF5350.toInt())
             setPadding(dp(16), dp(14), dp(16), dp(14))
             visibility = View.GONE
-            setOnClickListener { onStop() }
+            setOnClickListener { handleStop() }
         }
         root.addView(btnStop, mw().also { (it as LinearLayout.LayoutParams).setMargins(dp(16), 0, dp(16), 0) })
 
@@ -155,7 +155,7 @@ class MainActivity : AppCompatActivity() {
 
     // ── Logic ──────────────────────────────────────────────────────────────
 
-    private fun onStart() {
+    private fun handleStart() {
         if (!Settings.canDrawOverlays(this)) {
             toast("Önce Ekran Üstü İzni ver!")
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -172,7 +172,7 @@ class MainActivity : AppCompatActivity() {
         Handler(Looper.getMainLooper()).postDelayed({ refresh() }, 400)
     }
 
-    private fun onStop() {
+    private fun handleStop() {
         TapButtonService.stop(this)
         Handler(Looper.getMainLooper()).postDelayed({ refresh() }, 300)
     }
