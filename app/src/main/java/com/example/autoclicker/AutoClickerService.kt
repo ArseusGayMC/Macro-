@@ -54,7 +54,7 @@ class AutoClickerService : AccessibilityService() {
                 delay(INTERVAL_MS)
             }
         }
-        Log.d(TAG, "Baslatildi: x=$x y=$y")
+        Log.d(TAG, "Baslatildi x=$x y=$y")
     }
 
     fun stop() {
@@ -66,13 +66,8 @@ class AutoClickerService : AccessibilityService() {
     private fun tap(x: Float, y: Float) {
         val path = Path()
         path.moveTo(x, y)
-
         val stroke = GestureDescription.StrokeDescription(path, 0L, DURATION_MS)
-
-        val gesture = GestureDescription.Builder()
-            .addStroke(stroke)
-            .build()
-
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
         dispatchGesture(gesture, null, null)
     }
 }

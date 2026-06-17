@@ -19,10 +19,6 @@
             </intent-filter>
         </activity>
 
-        <!--
-            android:permission → yalnızca sistem bu servisi bağlayabilir
-            meta-data          → accessibility_service_config.xml'i bağlar
-        -->
         <service
             android:name=".AutoClickerService"
             android:exported="true"

@@ -1,5 +1,5 @@
 <resources>
     <string name="app_name">AutoClicker</string>
-    <string name="accessibility_service_label">Oto-Tıklayıcı</string>
-    <string name="accessibility_service_description">Belirtilen ekran koordinatına her 100ms\'de bir otomatik tıklama yapar.</string>
+    <string name="accessibility_service_label">Oto-Tiklayici</string>
+    <string name="accessibility_service_description">Belirtilen koordinata otomatik tiklama yapar.</string>
 </resources>

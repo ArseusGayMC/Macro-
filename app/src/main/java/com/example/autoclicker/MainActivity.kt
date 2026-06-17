@@ -54,7 +54,7 @@ fun AutoClickerScreen() {
     var tickCount by remember { mutableIntStateOf(0) }
     var xInput by remember { mutableStateOf("540") }
     var yInput by remember { mutableStateOf("960") }
-    var serviceRunning by remember { mutableStateOf(false) }
+    var running by remember { mutableStateOf(false) }
 
     Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
         Column(
@@ -64,30 +64,22 @@ fun AutoClickerScreen() {
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(text = "AutoClicker", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-
+            Text("AutoClicker", fontSize = 28.sp, fontWeight = FontWeight.Bold)
             HorizontalDivider()
 
-            Text(text = "Senaryo 1 — Uygulama İçi", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text(text = "Tick: $tickCount", fontSize = 22.sp)
-
+            Text("Senaryo 1 — Uygulama Ici", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text("Tick: $tickCount", fontSize = 22.sp)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                RepeatingActionButton(
-                    label = "Basılı Tut",
-                    intervalMs = 100L,
-                    onTick = { tickCount++ }
-                )
-                TextButton(onClick = { tickCount = 0 }) {
-                    Text("Sıfırla")
-                }
+                RepeatingActionButton(label = "Basili Tut", intervalMs = 100L, onTick = { tickCount++ })
+                TextButton(onClick = { tickCount = 0 }) { Text("Sifirla") }
             }
 
             HorizontalDivider()
 
-            Text(text = "Senaryo 2 — Sistem Geneli", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text("Senaryo 2 — Sistem Geneli", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -110,7 +102,7 @@ fun AutoClickerScreen() {
                 onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Erişilebilirlik İznini Aç →")
+                Text("Erisebilirlik Iznini Ac")
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -119,30 +111,26 @@ fun AutoClickerScreen() {
                         val x = xInput.toFloatOrNull() ?: 540f
                         val y = yInput.toFloatOrNull() ?: 960f
                         AutoClickerService.instance?.start(x, y)
-                        serviceRunning = true
+                        running = true
                     },
                     modifier = Modifier.weight(1f),
-                    enabled = !serviceRunning
-                ) { Text("Başlat") }
+                    enabled = !running
+                ) { Text("Baslat") }
 
                 Button(
                     onClick = {
                         AutoClickerService.instance?.stop()
-                        serviceRunning = false
+                        running = false
                     },
                     modifier = Modifier.weight(1f),
-                    enabled = serviceRunning,
+                    enabled = running,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) { Text("Durdur") }
             }
 
-            if (serviceRunning) {
+            if (running) {
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Aktif → ($xInput, $yInput)",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Medium
-                )
+                Text("Aktif -> ($xInput, $yInput)", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
             }
         }
     }
