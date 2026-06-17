@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.autoclicker"
-        minSdk = 24
+        minSdk = 30
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
@@ -49,7 +49,6 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-    // pointerInput ve detectTapGestures için zorunlu
     implementation(libs.androidx.compose.foundation)
     implementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.androidx.ui.tooling)
