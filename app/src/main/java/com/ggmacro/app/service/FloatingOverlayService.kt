@@ -133,7 +133,10 @@ class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwne
                         onRecord = { toggleRecording() },
                         onPlay = { playMacro() },
                         onStop = { stopAll() },
-                        onClose = { stopSelf() }
+                        onClose = { stopSelf() },
+                        // ✅ Hold-to-start: press the floating button to play, release to stop
+                        onHoldStart = { playMacro() },
+                        onHoldEnd   = { stopAll() }
                     )
                 }
             }
