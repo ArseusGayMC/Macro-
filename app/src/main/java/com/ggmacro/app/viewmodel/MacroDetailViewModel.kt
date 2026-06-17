@@ -114,11 +114,10 @@ class MacroDetailViewModel @Inject constructor(
             return
         }
         FloatingTriggerButtonService.start(
-            ctx          = context,
-            macroName    = _macroName.value.trim().ifBlank { "Macro" },
-            tapDuration  = _tapDuration.value,
-            tapDelay     = _tapDelay.value,
-            holdMs       = _holdThreshold.value
+            ctx         = context,
+            macroName   = _macroName.value.trim().ifBlank { "Macro" },
+            tapDuration = _tapDuration.value,
+            tapDelay    = _tapDelay.value
         )
         _isTriggerActive.value = true
         viewModelScope.launch {
