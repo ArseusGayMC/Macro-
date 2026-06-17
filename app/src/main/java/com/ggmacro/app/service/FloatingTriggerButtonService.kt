@@ -15,8 +15,6 @@ import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.VibrationEffect
-import android.os.Vibrator
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -26,61 +24,77 @@ import androidx.core.app.NotificationCompat
 import com.ggmacro.app.MainActivity
 import kotlin.math.abs
 
+/**
+ * İKİ overlay:
+ *  1. Trigger button  — kullanıcı BUNU basılı tutar (ekran kenarında)
+ *  2. Crosshair       — tıklamanın nereye gideceğini gösterir, sürüklenebilir
+ *
+ * Tıklama crosshair pozisyonuna gider.
+ * Tıklama sırasında crosshair FLAG_NOT_TOUCHABLE olur → gesture game'e ulaşır.
+ */
 class FloatingTriggerButtonService : Service() {
 
     companion object {
-        const val NOTIFICATION_ID      = 1002
-        const val CHANNEL_ID           = "gg_macro_trigger"
-        const val EXTRA_MACRO_NAME     = "macro_name"
-        const val EXTRA_TAP_DURATION   = "tap_duration"
-        const val EXTRA_TAP_DELAY      = "tap_delay"
-        const val EXTRA_HOLD_THRESHOLD = "hold_threshold"
+        const val NOTIF_ID            = 1002
+        const val CHANNEL_ID          = "gg_macro_trigger"
+        const val EXTRA_MACRO_NAME    = "macro_name"
+        const val EXTRA_TAP_DURATION  = "tap_duration"
+        const val EXTRA_TAP_DELAY     = "tap_delay"
+        const val EXTRA_HOLD_MS       = "hold_ms"
 
         @Volatile var isRunning = false
 
-        fun start(context: Context, macroName: String, tapDuration: Long,
-                  tapDelay: Long, holdThreshold: Long = 350L) {
-            context.startForegroundService(
-                Intent(context, FloatingTriggerButtonService::class.java).apply {
-                    putExtra(EXTRA_MACRO_NAME,     macroName)
-                    putExtra(EXTRA_TAP_DURATION,   tapDuration)
-                    putExtra(EXTRA_TAP_DELAY,      tapDelay)
-                    putExtra(EXTRA_HOLD_THRESHOLD, holdThreshold)
-                }
-            )
+        fun start(ctx: Context, macroName: String,
+                  tapDuration: Long, tapDelay: Long, holdMs: Long = 400L) {
+            ctx.startForegroundService(Intent(ctx, FloatingTriggerButtonService::class.java).apply {
+                putExtra(EXTRA_MACRO_NAME,   macroName)
+                putExtra(EXTRA_TAP_DURATION, tapDuration)
+                putExtra(EXTRA_TAP_DELAY,    tapDelay)
+                putExtra(EXTRA_HOLD_MS,      holdMs)
+            })
         }
 
-        fun stop(context: Context) =
-            context.stopService(Intent(context, FloatingTriggerButtonService::class.java))
+        fun stop(ctx: Context) =
+            ctx.stopService(Intent(ctx, FloatingTriggerButtonService::class.java))
     }
 
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var wm: WindowManager
-    private var overlayView: View? = null
-    private lateinit var lp: WindowManager.LayoutParams
 
-    private var macroName     = "Macro"
-    private var tapDuration   = 50L
-    private var tapDelay      = 50L
-    private var holdThreshold = 350L
+    private var macroName   = "Macro"
+    private var tapDuration = 50L
+    private var tapDelay    = 50L
+    private var holdMs      = 400L
+
+    // Trigger button
+    private var btnView: View? = null
+    private lateinit var btnLp: WindowManager.LayoutParams
+    private var btnDownX = 0f; private var btnDownY = 0f; private var btnMoved = false
+
+    // Crosshair
+    private var hairView: View? = null
+    private lateinit var hairLp: WindowManager.LayoutParams
+    private var hairDownX = 0f; private var hairDownY = 0f; private var hairMoved = false
 
     @Volatile private var executing = false
-    private var downX = 0f; private var downY = 0f; private var moved = false
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
 
     override fun onCreate() {
         super.onCreate()
         isRunning = true
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        createChannel()
+        startForeground(NOTIF_ID, buildNotif())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        macroName     = intent?.getStringExtra(EXTRA_MACRO_NAME)?.ifBlank { "Macro" } ?: "Macro"
-        tapDuration   = (intent?.getLongExtra(EXTRA_TAP_DURATION,   50L) ?: 50L).coerceAtLeast(1L)
-        tapDelay      = (intent?.getLongExtra(EXTRA_TAP_DELAY,      50L) ?: 50L).coerceAtLeast(16L)
-        holdThreshold = (intent?.getLongExtra(EXTRA_HOLD_THRESHOLD, 350L) ?: 350L).coerceIn(50L, 2000L)
-        if (overlayView == null) buildOverlay()
+        macroName   = intent?.getStringExtra(EXTRA_MACRO_NAME)?.ifBlank { "Macro" } ?: "Macro"
+        tapDuration = (intent?.getLongExtra(EXTRA_TAP_DURATION, 50L) ?: 50L).coerceAtLeast(1L)
+        tapDelay    = (intent?.getLongExtra(EXTRA_TAP_DELAY,    50L) ?: 50L).coerceAtLeast(16L)
+        holdMs      = (intent?.getLongExtra(EXTRA_HOLD_MS,     400L) ?: 400L).coerceIn(50L, 2000L)
+        if (btnView  == null) buildTriggerButton()
+        if (hairView == null) buildCrosshair()
         return START_STICKY
     }
 
@@ -88,142 +102,127 @@ class FloatingTriggerButtonService : Service() {
         isRunning = false
         stopLoop()
         handler.removeCallbacksAndMessages(null)
-        removeOverlay()
+        removeView(btnView);  btnView  = null
+        removeView(hairView); hairView = null
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // ── Overlay ───────────────────────────────────────────────────────────
+    // ── Trigger button ────────────────────────────────────────────────────
 
-    private fun buildOverlay() {
-        val dp     = resources.displayMetrics.density
-        val sizePx = (90 * dp).toInt()   // slightly larger = easier to hold
+    private fun buildTriggerButton() {
+        val dp = resources.displayMetrics.density
+        val sz = (88 * dp).toInt()
 
-        lp = WindowManager.LayoutParams(
-            sizePx, sizePx,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; x = 30; y = 300 }
+        btnLp = baseParams(sz, sz).apply {
+            x = 20; y = 400    // left edge
+        }
 
-        val bgPaint     = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = 4f * dp
             pathEffect = DashPathEffect(floatArrayOf(10f * dp, 5f * dp), 0f)
         }
         val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textAlign = Paint.Align.CENTER; isFakeBoldText = true; textSize = 11f * dp
+            textAlign = Paint.Align.CENTER; isFakeBoldText = true
+            textSize = 10f * dp; color = Color.WHITE
         }
 
-        val view = object : View(this@FloatingTriggerButtonService) {
-            override fun onDraw(canvas: Canvas) {
+        val v = object : View(this) {
+            override fun onDraw(c: Canvas) {
                 val cx = width / 2f; val cy = height / 2f
-                val r  = width / 2f - 6f * dp
+                val r  = width / 2f - 5f * dp
                 val svc = MacroAccessibilityService.getInstance()
 
                 bgPaint.color = when {
-                    svc == null -> Color.argb(180, 150, 0, 0)
+                    svc == null -> Color.argb(190, 140, 0, 0)
                     executing   -> Color.argb(200, 220, 30, 30)
-                    else        -> Color.argb(60,  0, 170, 255)
+                    else        -> Color.argb(55,  0, 170, 255)
                 }
-                borderPaint.color = when {
-                    svc == null -> Color.parseColor("#FF2222")
-                    executing   -> Color.parseColor("#FF0000")
-                    else        -> Color.parseColor("#00BFFF")
+                ringPaint.color = when {
+                    svc == null -> Color.rgb(220, 30, 30)
+                    executing   -> Color.rgb(255,  0,  0)
+                    else        -> Color.rgb(0, 191, 255)
                 }
-                txtPaint.color = Color.WHITE
+                c.drawCircle(cx, cy, r, bgPaint)
+                c.drawCircle(cx, cy, r, ringPaint)
 
-                canvas.drawCircle(cx, cy, r, bgPaint)
-                canvas.drawCircle(cx, cy, r, borderPaint)
-
-                val lines: List<String> = when {
+                val lines = when {
                     svc == null -> listOf("SERVİS", "KAPALI")
-                    executing   -> listOf("● TIKLIYOR")
+                    executing   -> listOf("◉ TIKLIYOR")
                     else        -> {
                         val n = macroName.take(12)
-                        if (n.length <= 7) listOf(n) else listOf(n.take(n.length/2), n.drop(n.length/2))
+                        if (n.length <= 7) listOf(n)
+                        else listOf(n.take(6), n.drop(6))
                     }
                 }
-                txtPaint.textSize = if (lines.size == 1) 11f * dp else 9.5f * dp
+                txtPaint.textSize = (if (lines.size == 1) 10f else 9f) * dp
                 if (lines.size == 1) {
-                    canvas.drawText(lines[0], cx, cy + txtPaint.textSize / 3f, txtPaint)
+                    c.drawText(lines[0], cx, cy + txtPaint.textSize / 3f, txtPaint)
                 } else {
-                    canvas.drawText(lines[0], cx, cy - txtPaint.textSize * 0.6f, txtPaint)
-                    canvas.drawText(lines[1], cx, cy + txtPaint.textSize * 0.9f, txtPaint)
+                    c.drawText(lines[0], cx, cy - txtPaint.textSize * 0.6f, txtPaint)
+                    c.drawText(lines[1], cx, cy + txtPaint.textSize * 0.9f, txtPaint)
                 }
             }
 
-            override fun onTouchEvent(e: MotionEvent): Boolean {
-                onTouch(e); return true
-            }
+            override fun onTouchEvent(e: MotionEvent): Boolean { onBtnTouch(e); return true }
         }
-
-        view.isClickable = true; view.isFocusable = false
-        overlayView = view
-        try { wm.addView(view, lp) }
-        catch (e: Exception) {
-            handler.post { Toast.makeText(this, "Overlay izni yok! Ayarlardan verin.", Toast.LENGTH_LONG).show() }
-        }
+        v.isClickable = true
+        btnView = v
+        try { wm.addView(v, btnLp) } catch (_: Exception) {}
     }
-
-    // ── Touch handling ────────────────────────────────────────────────────
 
     private val holdAction = Runnable {
         val svc = MacroAccessibilityService.getInstance()
-
         if (svc == null) {
-            // Clear toast so user knows why it's not working
             handler.post {
-                Toast.makeText(
-                    this,
-                    "⚠ Erişilebilirlik Servisi kapalı!\nAyarlar → Erişilebilirlik → GG Macro Service → Aç",
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(this,
+                    "⚠ Erişilebilirlik Servisi kapalı!\nAyarlar → Erişilebilirlik → GG Macro → Aç",
+                    Toast.LENGTH_LONG).show()
             }
-            overlayView?.post { overlayView?.invalidate() }
             return@Runnable
         }
-
         if (executing) return@Runnable
 
         executing = true
-        vibrate()
-        overlayView?.post { overlayView?.invalidate() }
+        btnView?.post  { btnView?.invalidate() }
 
-        // with FLAG_LAYOUT_IN_SCREEN, lp.x/y == absolute screen coords
-        val dp    = resources.displayMetrics.density
-        val half  = 45f * dp
-        val tapX  = lp.x.toFloat() + half
-        val tapY  = lp.y.toFloat() + half
+        // Crosshair'i FLAG_NOT_TOUCHABLE yap → gesture game'e ulaşır
+        hairLp.flags = hairLp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        try { wm.updateViewLayout(hairView, hairLp) } catch (_: Exception) {}
+
+        // Tıklanacak koordinat = crosshair merkezi
+        val dp   = resources.displayMetrics.density
+        val half = 40f * dp
+        val tapX = hairLp.x.toFloat() + half
+        val tapY = hairLp.y.toFloat() + half
 
         handler.post {
-            Toast.makeText(this, "✓ Tıklama başladı! Bırakınca durur.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "● Tıklama başladı — bırakınca durur", Toast.LENGTH_SHORT).show()
         }
 
         svc.startTapLoop(tapX, tapY, tapDuration, tapDelay)
     }
 
-    private fun onTouch(e: MotionEvent) {
+    private fun onBtnTouch(e: MotionEvent) {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downX = e.rawX; downY = e.rawY; moved = false
-                handler.postDelayed(holdAction, holdThreshold)
+                btnDownX = e.rawX; btnDownY = e.rawY; btnMoved = false
+                handler.postDelayed(holdAction, holdMs)
             }
             MotionEvent.ACTION_MOVE -> {
-                val dx = e.rawX - downX; val dy = e.rawY - downY
-                if (!moved && (abs(dx) > 10 || abs(dy) > 10)) {
-                    moved = true
+                val dx = e.rawX - btnDownX; val dy = e.rawY - btnDownY
+                if (!btnMoved && (abs(dx) > 12 || abs(dy) > 12)) {
+                    btnMoved = true
                     handler.removeCallbacks(holdAction)
                     stopLoop()
                 }
-                if (moved) {
-                    lp.x = (lp.x + dx.toInt()).coerceAtLeast(0)
-                    lp.y = (lp.y + dy.toInt()).coerceAtLeast(0)
-                    downX = e.rawX; downY = e.rawY
-                    try { wm.updateViewLayout(overlayView, lp) } catch (_: Exception) {}
+                if (btnMoved) {
+                    btnLp.x = (btnLp.x + dx.toInt()).coerceAtLeast(0)
+                    btnLp.y = (btnLp.y + dy.toInt()).coerceAtLeast(0)
+                    btnDownX = e.rawX; btnDownY = e.rawY
+                    try { wm.updateViewLayout(btnView, btnLp) } catch (_: Exception) {}
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -233,38 +232,114 @@ class FloatingTriggerButtonService : Service() {
         }
     }
 
+    // ── Crosshair ──────────────────────────────────────────────────────────
+
+    private fun buildCrosshair() {
+        val dp = resources.displayMetrics.density
+        val sz = (80 * dp).toInt()
+
+        // Ekran ortasına başlangıç — kullanıcı sürükler
+        val dm = resources.displayMetrics
+        hairLp = baseParams(sz, sz).apply {
+            x = dm.widthPixels  / 2 - sz / 2
+            y = dm.heightPixels / 2 - sz / 2
+        }
+
+        val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 3f * dp
+            color = Color.rgb(255, 80, 80)
+        }
+        val circlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 2f * dp
+            color = Color.argb(200, 255, 80, 80)
+        }
+        val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textAlign = Paint.Align.CENTER; textSize = 8f * dp
+            color = Color.rgb(255, 120, 120)
+        }
+
+        val v = object : View(this) {
+            override fun onDraw(c: Canvas) {
+                val cx = width / 2f; val cy = height / 2f
+                val arm = width * 0.28f
+
+                // Kısa + uzun çizgiler
+                c.drawLine(cx - arm, cy, cx + arm, cy, linePaint)
+                c.drawLine(cx, cy - arm, cx, cy + arm, linePaint)
+
+                // Daire
+                c.drawCircle(cx, cy, arm * 0.55f, circlePaint)
+
+                // Etiket
+                c.drawText("HEDEF", cx, cy + arm + 12f * resources.displayMetrics.density, txtPaint)
+            }
+
+            override fun onTouchEvent(e: MotionEvent): Boolean {
+                onHairTouch(e); return true
+            }
+        }
+        v.isClickable = true
+        hairView = v
+        try { wm.addView(v, hairLp) } catch (_: Exception) {}
+    }
+
+    private fun onHairTouch(e: MotionEvent) {
+        // Sürükle — tıklama sırasında FLAG_NOT_TOUCHABLE olduğu için bu kod çalışmaz
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { hairDownX = e.rawX; hairDownY = e.rawY; hairMoved = false }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = e.rawX - hairDownX; val dy = e.rawY - hairDownY
+                hairMoved = true
+                hairLp.x = (hairLp.x + dx.toInt()).coerceAtLeast(0)
+                hairLp.y = (hairLp.y + dy.toInt()).coerceAtLeast(0)
+                hairDownX = e.rawX; hairDownY = e.rawY
+                try { wm.updateViewLayout(hairView, hairLp) } catch (_: Exception) {}
+            }
+            MotionEvent.ACTION_UP -> {}
+        }
+    }
+
+    // ── Stop ──────────────────────────────────────────────────────────────
+
     private fun stopLoop() {
         if (!executing) return
         executing = false
         MacroAccessibilityService.getInstance()?.stopTapLoop()
-        overlayView?.post { overlayView?.invalidate() }
+
+        // Crosshair'i tekrar touchable yap (sürüklenebilsin)
+        hairLp.flags = hairLp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        try { wm.updateViewLayout(hairView, hairLp) } catch (_: Exception) {}
+
+        btnView?.post  { btnView?.invalidate() }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private fun vibrate() {
-        try { getSystemService(Vibrator::class.java)
-            ?.vibrate(VibrationEffect.createOneShot(60, VibrationEffect.DEFAULT_AMPLITUDE))
-        } catch (_: Exception) {}
+    private fun baseParams(w: Int, h: Int) = WindowManager.LayoutParams(
+        w, h,
+        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+        PixelFormat.TRANSLUCENT
+    ).apply { gravity = Gravity.TOP or Gravity.START }
+
+    private fun removeView(v: View?) {
+        v?.let { try { wm.removeView(it) } catch (_: Exception) {} }
     }
 
-    private fun removeOverlay() {
-        overlayView?.let { try { wm.removeView(it) } catch (_: Exception) {} }
-        overlayView = null
-    }
-
-    private fun createNotificationChannel() {
-        val ch = NotificationChannel(CHANNEL_ID, "GG Macro Trigger", NotificationManager.IMPORTANCE_LOW)
+    private fun createChannel() {
+        val ch = NotificationChannel(CHANNEL_ID, "GG Macro Tetik", NotificationManager.IMPORTANCE_LOW)
             .apply { setShowBadge(false) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
     }
 
-    private fun buildNotification(): Notification {
-        val pi = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE)
+    private fun buildNotif(): Notification {
+        val pi = PendingIntent.getActivity(this, 0,
+            Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("GG Macro — Tetik Aktif")
-            .setContentText("$macroName · Basılı tut → otomatik tıklama")
+            .setContentText("Mavi butonu basılı tut → tıklama başlar | Kırmızı hedefi sürükle")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pi).setOngoing(true).setSilent(true).build()
     }
