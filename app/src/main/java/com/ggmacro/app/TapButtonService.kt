@@ -27,7 +27,6 @@ class TapButtonService : Service() {
         private const val NOTIF_ID = 101
         private const val CHANNEL = "tap_btn_ch"
         @Volatile var running = false
-
         fun start(ctx: Context) =
             ctx.startForegroundService(Intent(ctx, TapButtonService::class.java))
         fun stop(ctx: Context) =
@@ -38,30 +37,33 @@ class TapButtonService : Service() {
     private lateinit var wm: WindowManager
 
     private val dp by lazy { resources.displayMetrics.density }
-    private val BTN get() = (72 * dp).toInt()
-    private val DEL get() = (36 * dp).toInt()
+    private val BTN  get() = (72 * dp).toInt()
+    private val DEL  get() = (38 * dp).toInt()
     private val CTRL get() = (52 * dp).toInt()
-    private val TH get() = 10f * dp
+    private val TH   get() = 8f * dp          // drag threshold (px)
 
-    // Base flags (touchable)
+    // Flags when button is normal (touchable)
     private val BASE_FLAGS
         get() = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
 
-    // "+" control button
+    // ── "+" control button ─────────────────────────────────────────────────
+
     private var cv: View? = null
     private var clp: WindowManager.LayoutParams? = null
     private var crx = 0f; private var cry = 0f; private var cm = false
 
-    // Each tap button
+    // ── Tap buttons ────────────────────────────────────────────────────────
+
     private data class Btn(
         val id: Int,
-        var v: View? = null, var lp: WindowManager.LayoutParams,
+        var v:  View? = null, var lp: WindowManager.LayoutParams,
         @Volatile var on: Boolean = false,
         var rx: Float = 0f, var ry: Float = 0f, var mv: Boolean = false,
         var dv: View? = null, var dlp: WindowManager.LayoutParams? = null,
-        var ds: Boolean = false
+        var ds: Boolean = false,
+        var holdRunnable: Runnable? = null   // long-press timer
     )
     private val list = mutableListOf<Btn>()
     private var nid = 0
@@ -82,17 +84,15 @@ class TapButtonService : Service() {
         rmv(cv); cv = null; super.onDestroy()
     }
 
-    // ── "+" control button ─────────────────────────────────────────────────
+    // ── "+" control ────────────────────────────────────────────────────────
 
     private fun mkCtrl() {
         val sz = CTRL; val dm = resources.displayMetrics
         clp = wlp(sz, sz, BASE_FLAGS).apply { x = dm.widthPixels - sz - 16; y = 220 }
-
         val bg = pf(Color.argb(240, 10, 140, 255))
         val rg = ps(Color.argb(180, 255, 255, 255), 2.5f * dp)
         val t1 = pt(22f * dp, Color.WHITE)
         val t2 = pt(6.5f * dp, Color.argb(200, 200, 240, 255))
-
         val v = object : View(this) {
             override fun onDraw(c: Canvas) {
                 val cx = width / 2f; val cy = height / 2f; val r = cx - 2f * dp
@@ -120,14 +120,16 @@ class TapButtonService : Service() {
         try { wm.addView(v, clp) } catch (_: Exception) {}
     }
 
-    // ── Tap button ─────────────────────────────────────────────────────────
+    // ── Add / build button ─────────────────────────────────────────────────
 
     private fun addBtn() {
         val sz = BTN; val dm = resources.displayMetrics; val id = nid++
         val lp = wlp(sz, sz, BASE_FLAGS).apply {
-            x = dm.widthPixels / 2 - sz / 2; y = dm.heightPixels / 2 - sz / 2
+            x = dm.widthPixels / 2 - sz / 2
+            y = dm.heightPixels / 2 - sz / 2
         }
-        val b = Btn(id = id, lp = lp); list.add(b); mkBv(b); mkDv(b)
+        val b = Btn(id = id, lp = lp)
+        list.add(b); mkBv(b); mkDv(b)
     }
 
     private fun mkBv(b: Btn) {
@@ -135,32 +137,17 @@ class TapButtonService : Service() {
         val t1 = pt(10f * dp, Color.WHITE).also { it.isFakeBoldText = true }
         val t2 = pt(7.5f * dp, Color.argb(215, 180, 240, 255))
         val tn = pt(7f * dp, Color.argb(140, 255, 255, 255))
-
         val v = object : View(this) {
             override fun onDraw(c: Canvas) {
                 val cx = width / 2f; val cy = height / 2f; val r = cx - 2.5f * dp
                 val svc = TapService.get()
-                bg.color = when {
-                    svc == null -> Color.argb(200, 120, 0, 0)
-                    b.on -> Color.argb(235, 215, 25, 25)
-                    else -> Color.argb(215, 0, 80, 205)
-                }
-                rg.color = when {
-                    svc == null -> Color.rgb(255, 70, 70)
-                    b.on -> Color.rgb(255, 50, 50)
-                    else -> Color.rgb(0, 200, 255)
-                }
+                bg.color = when { svc == null -> Color.argb(200, 120, 0, 0); b.on -> Color.argb(235, 215, 25, 25); else -> Color.argb(215, 0, 80, 205) }
+                rg.color = when { svc == null -> Color.rgb(255, 70, 70); b.on -> Color.rgb(255, 50, 50); else -> Color.rgb(0, 200, 255) }
                 c.drawCircle(cx, cy, r, bg); c.drawCircle(cx, cy, r, rg)
                 when {
-                    svc == null -> {
-                        c.drawText("SERVİS", cx, cy - 3f * dp, t1)
-                        c.drawText("KAPALI", cx, cy + 14f * dp, t2)
-                    }
+                    svc == null -> { c.drawText("SERVİS", cx, cy - 3f * dp, t1); c.drawText("KAPALI", cx, cy + 14f * dp, t2) }
                     b.on -> c.drawText("◉ TIKLIYOR", cx, cy + 4f * dp, t1)
-                    else -> {
-                        c.drawText("TIKLA", cx, cy - 2f * dp, t1)
-                        c.drawText("otomatik tıkla", cx, cy + 13f * dp, t2)
-                    }
+                    else -> { c.drawText("BAS & TUT", cx, cy - 2f * dp, t1); c.drawText("otomatik tıkla", cx, cy + 13f * dp, t2) }
                 }
                 c.drawText("#${b.id + 1}", cx, cy - r + 14f * dp, tn)
             }
@@ -176,26 +163,18 @@ class TapButtonService : Service() {
             x = b.lp.x + BTN - sz / 2; y = b.lp.y - sz / 2
         }
         b.dlp = dlp
-        val bgDel  = pf(Color.argb(240, 200, 20,  20))
+        val bgDel  = pf(Color.argb(240, 200,  20,  20))
         val bgStop = pf(Color.argb(240,  20, 160,  40))
         val t = pt(15f * dp, Color.WHITE).also { it.isFakeBoldText = true }
-
         val dv = object : View(this) {
             override fun onDraw(c: Canvas) {
-                val cx = width / 2f; val cy = height / 2f
-                c.drawCircle(cx, cy, cx - 1f, if (b.on) bgStop else bgDel)
-                c.drawText(if (b.on) "■" else "×", cx, cy + t.textSize * 0.38f, t)
+                c.drawCircle(width / 2f, height / 2f, width / 2f - 1f, if (b.on) bgStop else bgDel)
+                c.drawText(if (b.on) "■" else "×", width / 2f, height / 2f + t.textSize * 0.38f, t)
             }
             override fun onTouchEvent(e: MotionEvent): Boolean {
                 if (e.actionMasked == MotionEvent.ACTION_UP) {
-                    if (b.on) {
-                        // Green badge → stop tapping, then show delete option
-                        off(b)
-                        showD(b)
-                    } else {
-                        // Red badge → delete button
-                        rm(b); list.remove(b)
-                    }
+                    if (b.on) { off(b); showD(b) }   // green ■ → stop, then show delete
+                    else      { rm(b); list.remove(b) } // red × → delete
                 }
                 return true
             }
@@ -204,18 +183,30 @@ class TapButtonService : Service() {
         try { wm.addView(dv, dlp) } catch (_: Exception) {}
     }
 
-    // ── Touch ──────────────────────────────────────────────────────────────
+    // ── Touch handler ──────────────────────────────────────────────────────
 
     private fun touch(b: Btn, e: MotionEvent) {
+        // This is only called when b.on == false (button is FLAG_NOT_TOUCHABLE while tapping)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                // Only received when b.on == false (button is FLAG_NOT_TOUCHABLE while tapping)
                 b.rx = e.rawX; b.ry = e.rawY; b.mv = false
                 hideD(b)
+                // Start long-press timer: if user holds still for 350ms → start tapping
+                b.holdRunnable?.let { h.removeCallbacks(it) }
+                b.holdRunnable = Runnable {
+                    b.holdRunnable = null
+                    if (!b.mv) on(b)  // activate only if not dragging
+                }
+                h.postDelayed(b.holdRunnable!!, 350L)
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = e.rawX - b.rx; val dy = e.rawY - b.ry
-                if (!b.mv && sqrt(dx * dx + dy * dy) > TH) b.mv = true
+                if (!b.mv && sqrt(dx * dx + dy * dy) > TH) {
+                    b.mv = true
+                    // Cancel hold timer — user is dragging, not activating
+                    b.holdRunnable?.let { h.removeCallbacks(it) }
+                    b.holdRunnable = null
+                }
                 if (b.mv) {
                     b.lp.x = (b.lp.x + dx.toInt()).coerceAtLeast(0)
                     b.lp.y = (b.lp.y + dy.toInt()).coerceAtLeast(0)
@@ -228,73 +219,58 @@ class TapButtonService : Service() {
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (!b.mv) {
-                    // Clean tap (no drag) → start tapping
-                    on(b)
-                } else {
-                    // Was a drag → show delete option
-                    showD(b)
-                }
+                // Cancel hold timer on release
+                b.holdRunnable?.let { h.removeCallbacks(it) }
+                b.holdRunnable = null
+                if (b.mv) showD(b)   // drag ended → show delete badge
+                // (if hold timer already fired → b.on = true, handled there)
             }
         }
     }
 
-    // ── On / Off ───────────────────────────────────────────────────────────
+    // ── Tapping on / off ───────────────────────────────────────────────────
 
     private fun on(b: Btn) {
         val svc = TapService.get() ?: return
         if (b.on) return
         b.on = true
-        // Make button pass-through so injected gestures reach the underlying app,
-        // not this overlay. Without this flag the injected gestures land on the
-        // button itself and never reach the game/app below.
+        // KEY FIX: make button pass-through so injected gestures reach the
+        // underlying app instead of being swallowed by this overlay window
         b.lp.flags = BASE_FLAGS or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         try { wm.updateViewLayout(b.v, b.lp) } catch (_: Exception) {}
         b.v?.invalidate()
-        // Show green stop badge immediately
-        b.ds = true
-        b.dv?.visibility = View.VISIBLE
-        b.dv?.invalidate()
-        // Fire at the centre of the button in absolute screen coordinates
+        // Show green stop badge
+        b.ds = true; b.dv?.visibility = View.VISIBLE; b.dv?.invalidate()
+        // Fire gestures at the centre of the button (absolute screen coords)
         svc.startTapping(b.lp.x.toFloat() + BTN / 2f, b.lp.y.toFloat() + BTN / 2f)
     }
 
     private fun off(b: Btn) {
         if (!b.on) return
         b.on = false
-        // Restore normal touch so the button can be dragged / tapped again
+        // Restore touchability so button can be dragged / repositioned again
         b.lp.flags = BASE_FLAGS
         try { wm.updateViewLayout(b.v, b.lp) } catch (_: Exception) {}
         TapService.get()?.stopTapping()
         b.v?.invalidate()
-        // Hide the stop badge (caller may immediately show delete badge via showD)
-        b.ds = false
-        b.dv?.visibility = View.GONE
+        b.ds = false; b.dv?.visibility = View.GONE
     }
 
     private fun showD(b: Btn) {
-        if (b.on) return          // never show delete while tapping
-        b.ds = true
-        b.dv?.visibility = View.VISIBLE
-        b.dv?.invalidate()
+        if (b.on) return
+        b.ds = true; b.dv?.visibility = View.VISIBLE; b.dv?.invalidate()
         h.postDelayed({ if (b.ds && !b.on) hideD(b) }, 3000L)
     }
-
     private fun hideD(b: Btn) {
-        if (b.on) return          // never hide the stop badge while tapping
-        b.ds = false
-        b.dv?.visibility = View.GONE
+        if (b.on) return
+        b.ds = false; b.dv?.visibility = View.GONE
     }
-
     private fun rm(b: Btn) { off(b); rmv(b.v); b.v = null; rmv(b.dv); b.dv = null }
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
     private fun wlp(w: Int, h: Int, flags: Int) = WindowManager.LayoutParams(
-        w, h,
-        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        flags,
-        PixelFormat.TRANSLUCENT
+        w, h, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, flags, PixelFormat.TRANSLUCENT
     ).apply { gravity = Gravity.TOP or Gravity.START }
 
     private fun pf(c: Int) = Paint(Paint.ANTI_ALIAS_FLAG).also { it.color = c; it.style = Paint.Style.FILL }
@@ -307,14 +283,11 @@ class TapButtonService : Service() {
             .also { it.setShowBadge(false) }
             .let { getSystemService(NotificationManager::class.java).createNotificationChannel(it) }
     }
-
     private fun mkNot(): Notification {
-        val pi = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
-        )
+        val pi = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL)
             .setContentTitle("GG Macro — Tetik Aktif")
-            .setContentText("Butona dokun → tıklamayı başlat/durdur | Yeşil ■ → durdur")
+            .setContentText("Sürükle → taşı | Bas & Tut → tıklamayı başlat | Yeşil ■ → durdur")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pi).setOngoing(true).setSilent(true).build()
     }
