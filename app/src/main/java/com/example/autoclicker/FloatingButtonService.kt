@@ -25,23 +25,27 @@ class FloatingButtonService : Service() {
         private const val TAG = "FloatingButtonService"
         private const val CHANNEL_ID = "autoclicker_channel"
         private const val NOTIF_ID = 1
-
-        // MainActivity'den set edilir
-        var targetX = 540f
-        var targetY = 960f
     }
 
     private lateinit var windowManager: WindowManager
     private lateinit var floatView: View
     private val mainHandler = Handler(Looper.getMainLooper())
     private var isClicking = false
+    private var buttonSizePx = 0
 
-    // 600ms sonra auto-click baslar
+    // WindowManager params — pozisyon buradan okunur
+    private lateinit var layoutParams: WindowManager.LayoutParams
+
+    // 600ms bekleme sonrasi auto-click baslar
     private val startClickRunnable = Runnable {
         isClicking = true
-        setButtonColor(Color.parseColor("#F44336")) // kirmizi = aktif
-        AutoClickerService.instance?.start(targetX, targetY)
-        Log.d(TAG, "Auto-click basladi: $targetX, $targetY")
+        setColor(Color.parseColor("#F44336")) // kirmizi = aktif
+
+        // Butonun MERKEZ koordinati = tiklama hedefi
+        val cx = layoutParams.x + buttonSizePx / 2f
+        val cy = layoutParams.y + buttonSizePx / 2f
+        AutoClickerService.instance?.start(cx, cy)
+        Log.d(TAG, "Click basladi: cx=$cx cy=$cy")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -50,75 +54,70 @@ class FloatingButtonService : Service() {
         super.onCreate()
         startForeground(NOTIF_ID, buildNotification())
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        buttonSizePx = dp(64)
         createFloatingButton()
-        Log.d(TAG, "Servis basladi")
     }
 
     override fun onDestroy() {
         super.onDestroy()
         mainHandler.removeCallbacks(startClickRunnable)
         AutoClickerService.instance?.stop()
-        if (::floatView.isInitialized) {
-            runCatching { windowManager.removeView(floatView) }
-        }
-        Log.d(TAG, "Servis durduruldu")
+        if (::floatView.isInitialized) runCatching { windowManager.removeView(floatView) }
     }
 
-    // ─── Floating button olustur ───────────────────────────────────────────
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "STOP") stopSelf()
+        return START_STICKY
+    }
+
+    // ─── Floating buton ───────────────────────────────────────────────────
 
     private fun createFloatingButton() {
         floatView = View(this).apply {
             background = makeCircle(Color.parseColor("#6200EE"))
         }
 
-        val sizePx = dp(64)
-
-        val params = WindowManager.LayoutParams(
-            sizePx, sizePx,
+        layoutParams = WindowManager.LayoutParams(
+            buttonSizePx, buttonSizePx,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 20
-            y = 300
+            x = 30
+            y = 400
         }
 
-        var startParamX = 0
-        var startParamY = 0
-        var startRawX = 0f
-        var startRawY = 0f
-        var dragged = false
+        var startX = 0;  var startY = 0
+        var startRawX = 0f; var startRawY = 0f
 
         floatView.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    startParamX = params.x
-                    startParamY = params.y
+                    startX = layoutParams.x
+                    startY = layoutParams.y
                     startRawX = event.rawX
                     startRawY = event.rawY
-                    dragged = false
-                    // 600ms sonra tiklama baslasin
+                    // 600ms sonra tiklama baslar
                     mainHandler.postDelayed(startClickRunnable, 600)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - startRawX).toInt()
                     val dy = (event.rawY - startRawY).toInt()
-                    // 8px'den fazla hareket = surukleme, long-press iptal
-                    if (dx * dx + dy * dy > 64) {
-                        dragged = true
+                    // 10px den fazla hareket = surukleme, long-press iptal
+                    if (dx * dx + dy * dy > 100) {
                         mainHandler.removeCallbacks(startClickRunnable)
                         if (isClicking) {
                             isClicking = false
                             AutoClickerService.instance?.stop()
-                            setButtonColor(Color.parseColor("#6200EE"))
+                            setColor(Color.parseColor("#6200EE"))
                         }
                     }
-                    params.x = startParamX + dx
-                    params.y = startParamY + dy
-                    windowManager.updateViewLayout(floatView, params)
+                    layoutParams.x = startX + dx
+                    layoutParams.y = startY + dy
+                    windowManager.updateViewLayout(floatView, layoutParams)
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -126,8 +125,7 @@ class FloatingButtonService : Service() {
                     if (isClicking) {
                         isClicking = false
                         AutoClickerService.instance?.stop()
-                        setButtonColor(Color.parseColor("#6200EE"))
-                        Log.d(TAG, "Auto-click durduruldu")
+                        setColor(Color.parseColor("#6200EE"))
                     }
                     true
                 }
@@ -135,12 +133,10 @@ class FloatingButtonService : Service() {
             }
         }
 
-        windowManager.addView(floatView, params)
+        windowManager.addView(floatView, layoutParams)
     }
 
-    // ─── Yardimcilar ──────────────────────────────────────────────────────
-
-    private fun setButtonColor(color: Int) {
+    private fun setColor(color: Int) {
         mainHandler.post { floatView.background = makeCircle(color) }
     }
 
@@ -149,31 +145,26 @@ class FloatingButtonService : Service() {
         setColor(color)
     }
 
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun buildNotification(): Notification {
-        val manager = getSystemService(NotificationManager::class.java)
-        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
+        val mgr = getSystemService(NotificationManager::class.java)
+        if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
+            mgr.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "AutoClicker", NotificationManager.IMPORTANCE_LOW)
             )
         }
-        val stopIntent = PendingIntent.getService(
+        val stop = PendingIntent.getService(
             this, 0,
             Intent(this, FloatingButtonService::class.java).setAction("STOP"),
             PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AutoClicker Aktif")
-            .setContentText("Butona uzun bas → tiklama baslar, birakinca durur")
+            .setContentText("Butonu tiklamak istedigin yere gotur, uzun bas")
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .addAction(android.R.drawable.ic_media_pause, "Kapat", stopIntent)
+            .addAction(android.R.drawable.ic_media_pause, "Kapat", stop)
             .setOngoing(true)
             .build()
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "STOP") stopSelf()
-        return START_STICKY
     }
 }
