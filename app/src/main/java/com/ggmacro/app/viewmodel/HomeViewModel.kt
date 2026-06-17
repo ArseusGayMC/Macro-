@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.ggmacro.app.data.model.Macro
 import com.ggmacro.app.data.repository.MacroRepository
 import com.ggmacro.app.service.FloatingOverlayService
+import com.ggmacro.app.service.FloatingTriggerButtonService
 import com.ggmacro.app.service.MacroAccessibilityService
 import com.ggmacro.app.utils.MacroImportExport
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -35,19 +36,26 @@ class HomeViewModel @Inject constructor(
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying
 
+    private val _triggerRunning = MutableStateFlow(FloatingTriggerButtonService.isRunning)
+    val triggerRunning: StateFlow<Boolean> = _triggerRunning
+
     private var activeMacroId: Long = -1L
+
+    fun refreshTriggerState() {
+        _triggerRunning.value = FloatingTriggerButtonService.isRunning
+    }
 
     fun deleteMacro(macro: Macro) {
         viewModelScope.launch {
             repository.deleteMacro(macro.id)
-            _snackbarMessage.emit("\"${macro.name}\" deleted")
+            _snackbarMessage.emit("\"${macro.name}\" silindi")
         }
     }
 
     fun duplicateMacro(macro: Macro) {
         viewModelScope.launch {
             repository.duplicateMacro(macro)
-            _snackbarMessage.emit("\"${macro.name}\" duplicated")
+            _snackbarMessage.emit("\"${macro.name}\" kopyalandı")
         }
     }
 
@@ -55,13 +63,13 @@ class HomeViewModel @Inject constructor(
         val service = MacroAccessibilityService.getInstance()
         if (service == null) {
             viewModelScope.launch {
-                _snackbarMessage.emit("Enable Accessibility Service first")
+                _snackbarMessage.emit("Önce Erişilebilirlik Servisini aç")
             }
             return
         }
         val actions = repository.getMacroActions(macro)
         if (actions.isEmpty()) {
-            viewModelScope.launch { _snackbarMessage.emit("No recorded actions in this macro") }
+            viewModelScope.launch { _snackbarMessage.emit("Bu macroda kayıtlı eylem yok") }
             return
         }
         _isPlaying.value = true
@@ -82,14 +90,24 @@ class HomeViewModel @Inject constructor(
         FloatingOverlayService.start(context, macro)
     }
 
+    fun startTriggerButtons() {
+        FloatingTriggerButtonService.start(context)
+        _triggerRunning.value = true
+    }
+
+    fun stopTriggerButtons() {
+        FloatingTriggerButtonService.stop(context)
+        _triggerRunning.value = false
+    }
+
     fun exportMacros(uri: Uri) {
         viewModelScope.launch {
             val allMacros = macros.value
             val result = MacroImportExport.exportMacros(context, allMacros, uri)
             if (result.isSuccess) {
-                _snackbarMessage.emit("Exported ${allMacros.size} macro(s)")
+                _snackbarMessage.emit("${allMacros.size} macro dışa aktarıldı")
             } else {
-                _snackbarMessage.emit("Export failed: ${result.exceptionOrNull()?.message}")
+                _snackbarMessage.emit("Dışa aktarma başarısız: ${result.exceptionOrNull()?.message}")
             }
         }
     }
@@ -101,9 +119,9 @@ class HomeViewModel @Inject constructor(
                 result.getOrNull()?.forEach { macro ->
                     repository.saveMacro(macro)
                 }
-                _snackbarMessage.emit("Imported ${result.getOrNull()?.size ?: 0} macro(s)")
+                _snackbarMessage.emit("${result.getOrNull()?.size ?: 0} macro içe aktarıldı")
             } else {
-                _snackbarMessage.emit("Import failed: invalid file")
+                _snackbarMessage.emit("İçe aktarma başarısız: geçersiz dosya")
             }
         }
     }
