@@ -23,9 +23,16 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.6'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper --gradle-version 8.6 --distribution-type bin
+
+      - name: Fix gradlew DEFAULT_JVM_OPTS quoting
+        run: |
+          sed -i "s/DEFAULT_JVM_OPTS=.*/DEFAULT_JVM_OPTS=\"-Xmx64m -Xms64m\"/" gradlew
+          chmod +x gradlew
 
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
@@ -43,5 +50,5 @@ jobs:
       - name: Show APK info
         if: success()
         run: |
-          echo "Build tamamlandı!"
+          echo "Build tamamlandi!"
           ls -lh app/build/outputs/apk/debug/
