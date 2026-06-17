@@ -23,14 +23,12 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.6'
-
-      - name: Generate Gradle Wrapper
-        run: gradle wrapper --gradle-version 8.6
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
+      - name: Create local.properties
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
@@ -43,6 +41,7 @@ jobs:
           retention-days: 30
 
       - name: Show APK info
+        if: success()
         run: |
-          echo "✅ Build complete!"
+          echo "Build tamamlandı!"
           ls -lh app/build/outputs/apk/debug/
