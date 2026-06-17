@@ -30,6 +30,9 @@ class MacroAccessibilityService : AccessibilityService() {
     // ── Tap-loop (FloatingTriggerButtonService) ───────────────────────────
 
     fun startTapLoop(x: Float, y: Float, durationMs: Long, delayMs: Long) {
+        // Stop any running loop first to avoid overlapping dispatches
+        tapping = false
+        tapHandler.removeCallbacksAndMessages(null)
         tapping = true
         tap(x, y, durationMs.coerceAtLeast(1L), delayMs.coerceAtLeast(16L))
     }
