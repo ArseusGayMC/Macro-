@@ -26,19 +26,16 @@ class AutoClickerService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AutoClickerService"
-        private const val CLICK_INTERVAL_MS = 100L   // tıklamalar arası bekleme
-        private const val GESTURE_DURATION_MS = 50L  // tek dokunuşun süresi (tap = kısa)
+        private const val CLICK_INTERVAL_MS = 100L
+        private const val GESTURE_DURATION_MS = 50L
 
         /** Activity'den servise erişmek için statik referans. */
         var instance: AutoClickerService? = null
             private set
     }
 
-    // Servis yaşam döngüsüne bağlı scope; onDestroy'da iptal edilir.
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var clickJob: Job? = null
-
-    // ── Yaşam döngüsü ────────────────────────────────────────────────────────
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -46,7 +43,7 @@ class AutoClickerService : AccessibilityService() {
         Log.d(TAG, "Servis bağlandı")
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit // kullanılmıyor
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
     override fun onInterrupt() {
         Log.d(TAG, "Servis kesildi")
@@ -60,16 +57,9 @@ class AutoClickerService : AccessibilityService() {
         Log.d(TAG, "Servis yok edildi")
     }
 
-    // ── Genel API ────────────────────────────────────────────────────────────
-
-    /**
-     * Belirtilen (x, y) koordinatına sürekli tıklamayı başlatır.
-     * Zaten çalışan bir döngü varsa önce durdurur.
-     */
     fun startAutoClick(x: Float, y: Float) {
         stopAutoClick()
         Log.d(TAG, "Başlatıldı → ($x, $y)")
-
         clickJob = serviceScope.launch {
             while (isActive) {
                 withContext(Dispatchers.Main) { dispatchTap(x, y) }
@@ -78,23 +68,12 @@ class AutoClickerService : AccessibilityService() {
         }
     }
 
-    /** Çalışan tıklama döngüsünü durdurur. */
     fun stopAutoClick() {
         clickJob?.cancel()
         clickJob = null
         Log.d(TAG, "Durduruldu")
     }
 
-    // ── Dahili: tek dokunuş ──────────────────────────────────────────────────
-
-    /**
-     * GestureDescription ile (x, y) noktasına tek bir tap gönderir.
-     *
-     * Path.moveTo → tıklanacak nokta
-     * StrokeDescription:
-     *   startTime = 0   → hemen başla
-     *   duration        → kısa = tap, uzun = long-press
-     */
     private fun dispatchTap(x: Float, y: Float) {
         val path = Path().apply { moveTo(x, y) }
 
@@ -104,9 +83,10 @@ class AutoClickerService : AccessibilityService() {
             )
             .build()
 
+        // DÜZELTME: AccessibilityService.GestureResultCallback() — tam nitelikli ad zorunlu
         val sent = dispatchGesture(
             gesture,
-            object : GestureResultCallback() {
+            object : AccessibilityService.GestureResultCallback() {
                 override fun onCancelled(g: GestureDescription) {
                     Log.w(TAG, "Gestur iptal edildi")
                 }
