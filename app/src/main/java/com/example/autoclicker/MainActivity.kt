@@ -6,9 +6,29 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,15 +51,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AutoClickerScreen() {
     val context = LocalContext.current
-
-    // Senaryo 1 için tick sayacı
     var tickCount by remember { mutableIntStateOf(0) }
-
-    // X / Y koordinat girişleri (Senaryo 2)
     var xInput by remember { mutableStateOf("540") }
     var yInput by remember { mutableStateOf("960") }
-
-    // AccessibilityService aktif mi? (basit durum göstergesi)
     var serviceRunning by remember { mutableStateOf(false) }
 
     Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
@@ -48,32 +62,15 @@ fun AutoClickerScreen() {
                 .fillMaxSize()
                 .padding(padding)
                 .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // ── Başlık ────────────────────────────────────────────────────
-            Text(
-                text = "AutoClicker",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Text(text = "AutoClicker", fontSize = 28.sp, fontWeight = FontWeight.Bold)
 
             HorizontalDivider()
 
-            // ── Senaryo 1: Uygulama İçi Uzun Basma ───────────────────────
-            Text(
-                text = "Senaryo 1 — Uygulama İçi",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "Butona basılı tutun: her 100ms'de tick artar.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                text = "Tick: $tickCount",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Text(text = "Senaryo 1 — Uygulama İçi", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text(text = "Tick: $tickCount", fontSize = 22.sp)
+
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -90,19 +87,8 @@ fun AutoClickerScreen() {
 
             HorizontalDivider()
 
-            // ── Senaryo 2: Sistem Geneli AccessibilityService ─────────────
-            Text(
-                text = "Senaryo 2 — Sistem Geneli",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "Önce Erişilebilirlik iznini etkinleştirin, " +
-                        "sonra koordinat girin ve Başlat'a basın.",
-                style = MaterialTheme.typography.bodySmall
-            )
+            Text(text = "Senaryo 2 — Sistem Geneli", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
 
-            // Koordinat girişleri
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = xInput,
@@ -120,48 +106,40 @@ fun AutoClickerScreen() {
                 )
             }
 
-            // Erişilebilirlik izni butonu
             OutlinedButton(
-                onClick = {
-                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                },
+                onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Erişilebilirlik İznini Aç →")
             }
 
-            // Başlat / Durdur
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = {
                         val x = xInput.toFloatOrNull() ?: 540f
                         val y = yInput.toFloatOrNull() ?: 960f
-                        AutoClickerService.instance?.startAutoClick(x, y)
+                        AutoClickerService.instance?.start(x, y)
                         serviceRunning = true
                     },
                     modifier = Modifier.weight(1f),
                     enabled = !serviceRunning
-                ) {
-                    Text("Başlat")
-                }
+                ) { Text("Başlat") }
+
                 Button(
                     onClick = {
-                        AutoClickerService.instance?.stopAutoClick()
+                        AutoClickerService.instance?.stop()
                         serviceRunning = false
                     },
                     modifier = Modifier.weight(1f),
                     enabled = serviceRunning,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Durdur")
-                }
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Durdur") }
             }
 
             if (serviceRunning) {
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "⚡ Tıklama aktif → (${xInput}, ${yInput})",
+                    text = "Aktif → ($xInput, $yInput)",
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
                 )
