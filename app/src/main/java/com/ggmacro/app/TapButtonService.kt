@@ -21,51 +21,56 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import kotlin.math.sqrt
 
+/**
+ * v5 — Ayrı Kontrol + Hedef mimarisi
+ *
+ * Sorun: Kontrol butonu ile tıklama noktası aynıyken FLAG_NOT_TOUCHABLE
+ * ACTION_UP olayını iletmediği için "basılı tut → el çek → dur" UX'i çalışmıyordu.
+ *
+ * Çözüm: Gesture'lar HEDEF (⊕) konumuna enjekte edilir, KONTROL butonuna değil.
+ * Kontrol butonu normal (dokunulabilir) kalır → ACTION_UP garantili gelir → el çekince durur.
+ */
 class TapButtonService : Service() {
 
     companion object {
         private const val NOTIF_ID = 101
-        private const val CHANNEL = "tap_btn_ch"
+        private const val CHANNEL  = "tap_btn_ch"
         @Volatile var running = false
-        fun start(ctx: Context) =
-            ctx.startForegroundService(Intent(ctx, TapButtonService::class.java))
-        fun stop(ctx: Context) =
-            ctx.stopService(Intent(ctx, TapButtonService::class.java))
+        fun start(ctx: Context) = ctx.startForegroundService(Intent(ctx, TapButtonService::class.java))
+        fun stop(ctx: Context)  = ctx.stopService(Intent(ctx, TapButtonService::class.java))
     }
 
     private val h = Handler(Looper.getMainLooper())
     private lateinit var wm: WindowManager
 
-    private val dp by lazy { resources.displayMetrics.density }
-    private val BTN  get() = (72 * dp).toInt()
-    private val DEL  get() = (38 * dp).toInt()
-    private val CTRL get() = (52 * dp).toInt()
-    private val TH   get() = 10f * dp
+    private val dp   by lazy { resources.displayMetrics.density }
+    private val BTN  get() = (64 * dp).toInt()   // kontrol butonu
+    private val TGT  get() = (52 * dp).toInt()   // hedef nişangahı
+    private val DEL  get() = (36 * dp).toInt()   // silme rozeti
+    private val CTRL get() = (52 * dp).toInt()   // "+" ekleme butonu
+    private val TH   get() = 10f * dp             // sürükleme eşiği
 
-    // Normal (dokunulabilir) pencere bayrakları
-    private val BASE_FLAGS
-        get() = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+    private val BASE get() = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
 
-    // ── "+" kontrol butonu ─────────────────────────────────────────────────
-    private var cv: View? = null
-    private var clp: WindowManager.LayoutParams? = null
+    // ── "+" ekleme butonu ──────────────────────────────────────────────────
+    private var cv: View? = null; private var clp: WindowManager.LayoutParams? = null
     private var crx = 0f; private var cry = 0f; private var cm = false
 
-    // ── Otomatik tıklama butonları ─────────────────────────────────────────
+    // ── Tıklama çifti (kontrol + hedef) ───────────────────────────────────
     private data class Btn(
         val id: Int,
-        var v:   View? = null,
-        var lp:  WindowManager.LayoutParams,
+        var v:    View? = null, var lp:  WindowManager.LayoutParams,   // kontrol
+        var tv:   View? = null, var tlp: WindowManager.LayoutParams,   // hedef
+        var dv:   View? = null, var dlp: WindowManager.LayoutParams? = null, // sil
         @Volatile var on: Boolean = false,
-        var rx:  Float = 0f, var ry: Float = 0f, var mv: Boolean = false,
-        var dv:  View? = null, var dlp: WindowManager.LayoutParams? = null,
-        var ds:  Boolean = false,
-        var holdRunnable: Runnable? = null
+        var rx: Float = 0f, var ry: Float = 0f, var mv: Boolean = false,    // kontrol drag
+        var trx: Float = 0f, var tRy: Float = 0f, var tmv: Boolean = false, // hedef drag
+        var ds: Boolean = false,
+        var holdR: Runnable? = null
     )
-    private val list = mutableListOf<Btn>()
-    private var nid = 0
+    private val list = mutableListOf<Btn>(); private var nid = 0
 
     // ── Yaşam döngüsü ─────────────────────────────────────────────────────
     override fun onCreate() {
@@ -78,18 +83,15 @@ class TapButtonService : Service() {
     override fun onDestroy() {
         running = false; h.removeCallbacksAndMessages(null)
         TapService.get()?.stopTapping()
-        list.forEach { rm(it) }; list.clear()
-        rmv(cv); cv = null; super.onDestroy()
+        list.forEach { rm(it) }; list.clear(); rmv(cv); cv = null; super.onDestroy()
     }
 
-    // ── "+" kontrol butonu ─────────────────────────────────────────────────
+    // ── "+" butonu ─────────────────────────────────────────────────────────
     private fun mkCtrl() {
         val sz = CTRL; val dm = resources.displayMetrics
-        clp = wlp(sz, sz, BASE_FLAGS).apply { x = dm.widthPixels - sz - 16; y = 220 }
-        val bg = pf(Color.argb(240, 10, 140, 255))
-        val rg = ps(Color.argb(180, 255, 255, 255), 2.5f * dp)
-        val t1 = pt(22f * dp, Color.WHITE)
-        val t2 = pt(6.5f * dp, Color.argb(200, 200, 240, 255))
+        clp = wlp(sz, sz, BASE).apply { x = dm.widthPixels - sz - 16; y = 220 }
+        val bg = pf(Color.argb(240, 10, 140, 255)); val rg = ps(Color.argb(180, 255, 255, 255), 2.5f * dp)
+        val t1 = pt(22f * dp, Color.WHITE); val t2 = pt(6f * dp, Color.argb(200, 200, 240, 255))
         val v = object : View(this) {
             override fun onDraw(c: Canvas) {
                 val cx = width / 2f; val cy = height / 2f; val r = cx - 2f * dp
@@ -114,65 +116,83 @@ class TapButtonService : Service() {
                 }; return true
             }
         }
-        v.isClickable = true; cv = v
-        try { wm.addView(v, clp) } catch (_: Exception) {}
+        v.isClickable = true; cv = v; try { wm.addView(v, clp) } catch (_: Exception) {}
     }
 
-    // ── Buton oluştur ──────────────────────────────────────────────────────
+    // ── Yeni çift oluştur ──────────────────────────────────────────────────
     private fun addBtn() {
-        val sz = BTN; val dm = resources.displayMetrics; val id = nid++
-        val lp = wlp(sz, sz, BASE_FLAGS).apply {
-            x = dm.widthPixels / 2 - sz / 2
-            y = dm.heightPixels / 2 - sz / 2
-        }
-        val b = Btn(id = id, lp = lp); list.add(b); mkBv(b); mkDv(b)
+        val dm = resources.displayMetrics; val id = nid++
+        val cx = dm.widthPixels / 2; val cy = dm.heightPixels / 2
+        // Kontrol butonu ekranın üst yarısında, hedef alt yarısında başlar
+        val lp  = wlp(BTN, BTN, BASE).apply { x = cx - BTN / 2; y = cy - BTN / 2 - (80 * dp).toInt() }
+        val tlp = wlp(TGT, TGT, BASE).apply { x = cx - TGT / 2; y = cy - TGT / 2 + (80 * dp).toInt() }
+        val b = Btn(id = id, lp = lp, tlp = tlp)
+        list.add(b); mkBv(b); mkTv(b); mkDv(b)
     }
 
+    // ── Kontrol butonu görünümü ────────────────────────────────────────────
     private fun mkBv(b: Btn) {
         val bg = pf(0); val rg = ps(0, 3f * dp)
-        val t1 = pt(10f * dp, Color.WHITE).also { it.isFakeBoldText = true }
-        val t2 = pt(7.5f * dp, Color.argb(215, 180, 240, 255))
-        val tn = pt(7f * dp, Color.argb(140, 255, 255, 255))
+        val t1 = pt(9f * dp, Color.WHITE).also { it.isFakeBoldText = true }
+        val t2 = pt(7f * dp, Color.argb(215, 180, 240, 255))
+        val tn = pt(6.5f * dp, Color.argb(140, 255, 255, 255))
         val v = object : View(this) {
             override fun onDraw(c: Canvas) {
                 val cx = width / 2f; val cy = height / 2f; val r = cx - 2.5f * dp
                 val svc = TapService.get()
                 bg.color = when { svc == null -> Color.argb(200, 120, 0, 0); b.on -> Color.argb(235, 215, 25, 25); else -> Color.argb(215, 0, 80, 205) }
-                rg.color = when { svc == null -> Color.rgb(255, 70, 70);     b.on -> Color.rgb(255, 50, 50);       else -> Color.rgb(0, 200, 255) }
+                rg.color = when { svc == null -> Color.rgb(255, 70, 70); b.on -> Color.rgb(255, 50, 50); else -> Color.rgb(0, 200, 255) }
                 c.drawCircle(cx, cy, r, bg); c.drawCircle(cx, cy, r, rg)
                 when {
-                    svc == null -> { c.drawText("SERVİS", cx, cy - 3f * dp, t1); c.drawText("KAPALI", cx, cy + 14f * dp, t2) }
-                    b.on        -> c.drawText("◉ TIKLIYOR", cx, cy + 4f * dp, t1)
-                    else        -> { c.drawText("BAS & TUT", cx, cy - 2f * dp, t1); c.drawText("tıklamak için", cx, cy + 13f * dp, t2) }
+                    svc == null -> { c.drawText("ERİŞİM", cx, cy - 2f * dp, t1); c.drawText("VER →", cx, cy + 13f * dp, t2) }
+                    b.on        -> { c.drawText("◉ TIKLIYOR", cx, cy - 2f * dp, t1); c.drawText("el çek → dur", cx, cy + 13f * dp, t2) }
+                    else        -> { c.drawText("BAS & TUT", cx, cy - 2f * dp, t1); c.drawText("başlatmak için", cx, cy + 13f * dp, t2) }
                 }
-                c.drawText("#${b.id + 1}", cx, cy - r + 14f * dp, tn)
+                c.drawText("#${b.id + 1}", cx, cy - r + 12f * dp, tn)
             }
-            override fun onTouchEvent(e: MotionEvent): Boolean { touch(b, e); return true }
+            override fun onTouchEvent(e: MotionEvent): Boolean { touchCtrl(b, e); return true }
         }
-        v.isClickable = true; b.v = v
-        try { wm.addView(v, b.lp) } catch (_: Exception) {}
+        v.isClickable = true; b.v = v; try { wm.addView(v, b.lp) } catch (_: Exception) {}
     }
 
-    // Küçük kırmızı × (silmek için) / yeşil ■ (acil durdurma için)
+    // ── Hedef nişangahı görünümü ───────────────────────────────────────────
+    private fun mkTv(b: Btn) {
+        val ring  = ps(Color.argb(230, 255, 220,  0), 2.5f * dp)
+        val ringA = ps(Color.argb(230, 255,  60,  0), 2.5f * dp)
+        val dot   = pf(Color.argb(240, 255,  60,  0))
+        val lbl   = pt(6.5f * dp, Color.argb(210, 255, 255, 200))
+        val tv = object : View(this) {
+            override fun onDraw(c: Canvas) {
+                val cx = width / 2f; val cy = height / 2f; val r = cx - 3f * dp
+                val p = if (b.on) ringA else ring
+                c.drawCircle(cx, cy, r, p)
+                val arm = r * 0.42f
+                c.drawLine(cx - r, cy, cx - r + arm, cy, p)
+                c.drawLine(cx + r - arm, cy, cx + r, cy, p)
+                c.drawLine(cx, cy - r, cx, cy - r + arm, p)
+                c.drawLine(cx, cy + r - arm, cx, cy + r, p)
+                c.drawCircle(cx, cy, 3.5f * dp, dot)
+                c.drawText("⊕ HEDEF #${b.id + 1}", cx, cy + r + 10f * dp, lbl)
+            }
+            override fun onTouchEvent(e: MotionEvent): Boolean { touchTarget(b, e); return true }
+        }
+        tv.isClickable = true; b.tv = tv; try { wm.addView(tv, b.tlp) } catch (_: Exception) {}
+    }
+
+    // ── Silme rozeti ───────────────────────────────────────────────────────
     private fun mkDv(b: Btn) {
         val sz = DEL
-        val dlp = wlp(sz, sz, BASE_FLAGS).apply {
-            x = b.lp.x + BTN - sz / 2; y = b.lp.y - sz / 2
-        }
+        val dlp = wlp(sz, sz, BASE).apply { x = b.lp.x + BTN - sz / 2; y = b.lp.y - sz / 2 }
         b.dlp = dlp
-        val bgDel  = pf(Color.argb(240, 200, 20, 20))
-        val bgStop = pf(Color.argb(240, 20, 160, 40))
-        val t = pt(15f * dp, Color.WHITE).also { it.isFakeBoldText = true }
+        val bg = pf(Color.argb(240, 200, 20, 20))
+        val t  = pt(14f * dp, Color.WHITE).also { it.isFakeBoldText = true }
         val dv = object : View(this) {
             override fun onDraw(c: Canvas) {
-                c.drawCircle(width / 2f, height / 2f, width / 2f - 1f, if (b.on) bgStop else bgDel)
-                c.drawText(if (b.on) "■" else "×", width / 2f, height / 2f + t.textSize * 0.38f, t)
+                c.drawCircle(width / 2f, height / 2f, width / 2f - 1f, bg)
+                c.drawText("×", width / 2f, height / 2f + t.textSize * 0.38f, t)
             }
             override fun onTouchEvent(e: MotionEvent): Boolean {
-                if (e.actionMasked == MotionEvent.ACTION_UP) {
-                    if (b.on) off(b)            // yeşil ■ → acil durdur
-                    else { rm(b); list.remove(b) } // kırmızı × → sil
-                }
+                if (e.actionMasked == MotionEvent.ACTION_UP) { rm(b); list.remove(b) }
                 return true
             }
         }
@@ -180,31 +200,24 @@ class TapButtonService : Service() {
         try { wm.addView(dv, dlp) } catch (_: Exception) {}
     }
 
-    // ── Dokunma işleyicisi ─────────────────────────────────────────────────
-    private fun touch(b: Btn, e: MotionEvent) {
+    // ── Kontrol butonu dokunuşu ────────────────────────────────────────────
+    private fun touchCtrl(b: Btn, e: MotionEvent) {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 b.rx = e.rawX; b.ry = e.rawY; b.mv = false
                 if (!b.on) {
                     hideD(b)
-                    // 200ms basılı tutma zamanlayıcısı başlat
-                    b.holdRunnable?.let { h.removeCallbacks(it) }
-                    b.holdRunnable = Runnable {
-                        b.holdRunnable = null
-                        if (!b.mv) on(b)  // hareket yoksa tıklamayı başlat
-                    }
-                    h.postDelayed(b.holdRunnable!!, 200L)
+                    // 150ms hareketsiz bas → tıklamayı başlat
+                    b.holdR?.let { h.removeCallbacks(it) }
+                    b.holdR = Runnable { b.holdR = null; if (!b.mv) on(b) }
+                    h.postDelayed(b.holdR!!, 150L)
                 }
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = e.rawX - b.rx; val dy = e.rawY - b.ry
                 if (!b.mv && sqrt(dx * dx + dy * dy) > TH) {
                     b.mv = true
-                    // Hareket var → zamanlayıcıyı iptal et
-                    b.holdRunnable?.let { h.removeCallbacks(it) }
-                    b.holdRunnable = null
-                    // Tıklama aktifse durdur (sürüklemek istiyor)
-                    if (b.on) off(b)
+                    b.holdR?.let { h.removeCallbacks(it) }; b.holdR = null
                 }
                 if (b.mv && !b.on) {
                     b.lp.x = (b.lp.x + dx.toInt()).coerceAtLeast(0)
@@ -218,57 +231,61 @@ class TapButtonService : Service() {
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                b.holdRunnable?.let { h.removeCallbacks(it) }
-                b.holdRunnable = null
+                b.holdR?.let { h.removeCallbacks(it) }; b.holdR = null
                 when {
-                    b.on  -> off(b)    // ★ Parmak kaldırıldı → DURDUR (press-and-hold UX)
-                    b.mv  -> showD(b)  // Sürükleme bitti → × göster
-                    // Kısa dokunuş (< 200ms, hareket yok) → hiçbir şey olmaz
+                    b.on -> off(b)    // ★ el çekildi → DURDUR (FLAG_NOT_TOUCHABLE YOK → ACTION_UP garantili gelir)
+                    b.mv -> showD(b)
                 }
             }
         }
     }
 
-    // ── Tıklama aç / kapat ─────────────────────────────────────────────────
-    private fun on(b: Btn) {
-        val svc = TapService.get() ?: return
-        if (b.on) return
-        b.on = true
-        // FLAG_NOT_TOUCHABLE: bu pencere dokunuşları altyapıdaki uygulamaya geçirir
-        // (Android, mevcut parmak izini kaybettirmez — ACTION_UP yine de gelir)
-        b.lp.flags = BASE_FLAGS or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        try { wm.updateViewLayout(b.v, b.lp) } catch (_: Exception) {}
-        b.v?.invalidate()
-        // Yeşil ■ badge'ini acil durum için göster
-        b.ds = true; b.dv?.visibility = View.VISIBLE; b.dv?.invalidate()
-        svc.startTapping(b.lp.x.toFloat() + BTN / 2f, b.lp.y.toFloat() + BTN / 2f)
+    // ── Hedef nişangahı dokunuşu ───────────────────────────────────────────
+    private fun touchTarget(b: Btn, e: MotionEvent) {
+        if (b.on) return  // tıklama aktifken hedefi taşıma
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { b.trx = e.rawX; b.tRy = e.rawY; b.tmv = false }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = e.rawX - b.trx; val dy = e.rawY - b.tRy
+                if (!b.tmv && sqrt(dx * dx + dy * dy) > TH) b.tmv = true
+                if (b.tmv) {
+                    b.tlp.x = (b.tlp.x + dx.toInt()).coerceAtLeast(0)
+                    b.tlp.y = (b.tlp.y + dy.toInt()).coerceAtLeast(0)
+                    b.trx = e.rawX; b.tRy = e.rawY
+                    try { wm.updateViewLayout(b.tv, b.tlp) } catch (_: Exception) {}
+                }
+            }
+            MotionEvent.ACTION_UP -> {}
+        }
     }
 
+    // ── Tıklama aç ────────────────────────────────────────────────────────
+    private fun on(b: Btn) {
+        val svc = TapService.get() ?: return
+        if (b.on) return; b.on = true
+        b.v?.invalidate(); b.tv?.invalidate()
+        // ★ TEMEL ÇÖZÜM: Gesture HEDEF konumuna ateşlenir, kontrol butonu değil!
+        //   Kontrol butonu dokunuşları almaya devam eder → el çekilince ACTION_UP gelir.
+        svc.startTapping(b.tlp.x.toFloat() + TGT / 2f, b.tlp.y.toFloat() + TGT / 2f)
+    }
+
+    // ── Tıklama kapat ─────────────────────────────────────────────────────
     private fun off(b: Btn) {
-        if (!b.on) return
-        b.on = false
-        // Butonu tekrar dokunulabilir yap
-        b.lp.flags = BASE_FLAGS
-        try { wm.updateViewLayout(b.v, b.lp) } catch (_: Exception) {}
+        if (!b.on) return; b.on = false
         TapService.get()?.stopTapping()
-        b.v?.invalidate()
-        b.ds = false; b.dv?.visibility = View.GONE
+        b.v?.invalidate(); b.tv?.invalidate()
     }
 
     private fun showD(b: Btn) {
-        if (b.on) return
-        b.ds = true; b.dv?.visibility = View.VISIBLE; b.dv?.invalidate()
+        if (b.on) return; b.ds = true; b.dv?.visibility = View.VISIBLE; b.dv?.invalidate()
         h.postDelayed({ if (b.ds && !b.on) hideD(b) }, 3000L)
     }
-    private fun hideD(b: Btn) {
-        if (b.on) return
-        b.ds = false; b.dv?.visibility = View.GONE
-    }
-    private fun rm(b: Btn) { off(b); rmv(b.v); b.v = null; rmv(b.dv); b.dv = null }
+    private fun hideD(b: Btn) { if (b.on) return; b.ds = false; b.dv?.visibility = View.GONE }
+    private fun rm(b: Btn) { off(b); rmv(b.v); b.v = null; rmv(b.tv); b.tv = null; rmv(b.dv); b.dv = null }
 
     // ── Yardımcılar ───────────────────────────────────────────────────────
-    private fun wlp(w: Int, h: Int, flags: Int) = WindowManager.LayoutParams(
-        w, h, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, flags, PixelFormat.TRANSLUCENT
+    private fun wlp(w: Int, h: Int, f: Int) = WindowManager.LayoutParams(
+        w, h, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, f, PixelFormat.TRANSLUCENT
     ).apply { gravity = Gravity.TOP or Gravity.START }
 
     private fun pf(c: Int) = Paint(Paint.ANTI_ALIAS_FLAG).also { it.color = c; it.style = Paint.Style.FILL }
@@ -284,8 +301,8 @@ class TapButtonService : Service() {
     private fun mkNot(): Notification {
         val pi = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL)
-            .setContentTitle("GG Macro — Tetik Aktif")
-            .setContentText("Bas & Tut → başlat | Parmak kaldır → durdur | Sürükle → taşı")
+            .setContentTitle("GG Macro Aktif")
+            .setContentText("⊕ Hedefi sürükle → oyun tuşuna | Kontrol: Bas&Tut → Başlar | El çek → Durur")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pi).setOngoing(true).setSilent(true).build()
     }
