@@ -1,18 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">GG Macro</string>
-    <string name="accessibility_service_label">GG Macro Service</string>
-    <string name="accessibility_service_description">GG Macro uses Accessibility Service to record and replay touch gestures during gameplay. No personal data is collected.</string>
-
-    <string name="notification_channel_id">gg_macro_overlay</string>
-    <string name="notification_channel_name">GG Macro Overlay</string>
-    <string name="notification_title">GG Macro Running</string>
-    <string name="notification_text">Floating overlay is active</string>
-
-    <string name="macro_recorded">Macro recorded successfully</string>
-    <string name="macro_deleted">Macro deleted</string>
-    <string name="macro_duplicated">Macro duplicated</string>
-    <string name="export_success">Macro exported</string>
-    <string name="import_success">Macro imported</string>
-    <string name="import_error">Import failed: invalid file format</string>
+    <string name="accessibility_service_label">GG Macro Otomatik Tıklama</string>
+    <string name="accessibility_service_description">Oyun içinde otomatik dokunma yapabilmek için gereklidir. Gestures iznini kullanır.</string>
 </resources>
