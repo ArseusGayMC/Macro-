@@ -1,23 +1,29 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {
-    namespace = "com.ggmacro.app"
-    compileSdk = 34
+    namespace = "com.example.autoclicker"
+    compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.ggmacro.app"
-        minSdk = 29
-        targetSdk = 34
-        versionCode = 2
-        versionName = "2.0.0"
+        applicationId = "com.example.autoclicker"
+        minSdk = 24          // dispatchGesture API 24+ gerektirir
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0"
     }
 
     buildTypes {
-        release { isMinifyEnabled = false }
-        debug { isDebuggable = true }
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
     }
 
     compileOptions {
@@ -25,12 +31,24 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        compose = true
+    }
 }
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.material3)
     implementation(libs.kotlinx.coroutines.android)
-    implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("com.google.android.material:material:1.12.0")
+    debugImplementation(libs.androidx.ui.tooling)
 }
